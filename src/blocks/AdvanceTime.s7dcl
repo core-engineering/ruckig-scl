@@ -1,0 +1,43 @@
+{
+    S7_Author := "Martin C";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.1.0"
+}
+FUNCTION "AdvanceTime" : Void
+    VAR_IN_OUT
+        trajectory : _.typeTrajectory;
+    END_VAR
+    VAR_INPUT
+        dt : LReal;
+    END_VAR
+    VAR_TEMP
+        newTime : LReal;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      AdvanceTime
+            // Function:   Increment trajectory.currentTime by dt,
+            //             clamped to trajectory.duration. No op if
+            //             trajectory.isValid is FALSE.
+            // Family:     Ruckig
+            // Author:     Martin C
+            //==========================================================
+        END_REGION
+
+        REGION Advance
+            IF NOT #trajectory.isValid THEN
+                RETURN;
+            END_IF;
+            #newTime := #trajectory.currentTime + #dt;
+            IF #newTime > #trajectory.duration THEN
+                #newTime := #trajectory.duration;
+            END_IF;
+            #trajectory.currentTime := #newTime;
+        END_REGION
+    END_NETWORK
+END_FUNCTION

@@ -1,0 +1,62 @@
+{
+    S7_Author := "Martin C";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.1.0"
+}
+FUNCTION "StateAtTime" : Void
+    VAR_IN_OUT
+        profile : _.typeProfile;
+    END_VAR
+    VAR_INPUT
+        t : LReal;
+    END_VAR
+    VAR_OUTPUT
+        p : LReal;
+        v : LReal;
+        a : LReal;
+    END_VAR
+    VAR_TEMP
+        i        : DInt;
+        tElapsed : LReal;
+        dt       : LReal;
+    END_VAR
+    VAR CONSTANT
+        EPS_TIME : LReal := 1.0E-9;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      StateAtTime
+            // Function:   Evaluate position, velocity, acceleration at
+            //             arbitrary time t on a 7 phase profile.
+            //             Clamps to final state if t exceeds duration.
+            // Family:     Ruckig
+            // Author:     Martin C
+            //==========================================================
+        END_REGION
+
+        REGION Locate phase and evaluate
+            #tElapsed := 0.0;
+            FOR #i := 0 TO 6 DO
+                IF #t <= #tElapsed + #profile.t[#i] + #EPS_TIME THEN
+                    #dt := #t - #tElapsed;
+                    #a := #profile.a[#i] + #profile.j[#i] * #dt;
+                    #v := #profile.v[#i] + #profile.a[#i] * #dt + 0.5 * #profile.j[#i] * #dt * #dt;
+                    #p := #profile.p[#i] + #profile.v[#i] * #dt + 0.5 * #profile.a[#i] * #dt * #dt + #profile.j[#i] * #dt * #dt * #dt / 6.0;
+                    RETURN;
+                END_IF;
+                #tElapsed := #tElapsed + #profile.t[#i];
+            END_FOR;
+        END_REGION
+
+        REGION Clamp beyond trajectory end
+            #p := #profile.p[7];
+            #v := #profile.v[7];
+            #a := #profile.a[7];
+        END_REGION
+    END_NETWORK
+END_FUNCTION
