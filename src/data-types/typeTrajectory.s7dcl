@@ -1,0 +1,9 @@
+TYPE
+    typeTrajectory : STRUCT
+        profiles                : Array[0..3] of typeProfile;
+        duration                : LReal := 0.0;
+        independentMinDurations : Array[0..3] of LReal;
+        currentTime             : LReal := 0.0;
+        isValid                 : Bool := false;
+    END_STRUCT;
+END_TYPE
