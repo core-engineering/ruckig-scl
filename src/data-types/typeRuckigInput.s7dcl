@@ -1,0 +1,18 @@
+TYPE
+    typeRuckigInput : STRUCT
+        currentPosition        : Array[0..3] of LReal;
+        currentVelocity        : Array[0..3] of LReal;
+        currentAcceleration    : Array[0..3] of LReal;
+        targetPosition         : Array[0..3] of LReal;
+        targetVelocity         : Array[0..3] of LReal;
+        targetAcceleration     : Array[0..3] of LReal;
+        maxVelocity            : Array[0..3] of LReal;
+        maxAcceleration        : Array[0..3] of LReal;
+        maxJerk                : Array[0..3] of LReal;
+        enabled                : Array[0..3] of Bool;
+        nDofs                  : DInt := 1;
+        controlInterface       : Int := 0;
+        synchronization        : Int := 0;
+        durationDiscretization : Int := 0;
+    END_STRUCT;
+END_TYPE
