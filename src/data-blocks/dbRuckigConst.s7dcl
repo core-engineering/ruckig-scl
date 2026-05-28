@@ -1,0 +1,37 @@
+{
+    S7_Optimized := "TRUE";
+    S7_HMI_Visible := "FALSE"
+}
+DATA_BLOCK dbRuckigConst
+    VAR
+        DOF_MAX               : DInt  := 4;
+        EPS_TIME              : LReal := 1.0E-9;
+        EPS_VELOCITY          : LReal := 1.0E-12;
+        EPS_POSITION          : LReal := 1.0E-12;
+        EPS_DERIV             : LReal := 1.0E-8;
+        PI                    : LReal := 3.141592653589793;
+
+        RESULT_FINISHED       : Word  := 16#0000;
+        RESULT_WORKING        : Word  := 16#7000;
+        RESULT_ERR_VMAX       : Word  := 16#8201;
+        RESULT_ERR_AMAX       : Word  := 16#8202;
+        RESULT_ERR_JMAX       : Word  := 16#8203;
+        RESULT_ERR_CURR_VEL   : Word  := 16#8204;
+        RESULT_ERR_CURR_ACC   : Word  := 16#8205;
+        RESULT_ERR_NDOFS      : Word  := 16#8206;
+        RESULT_ERR_NON_FINITE : Word  := 16#8207;
+        RESULT_ERR_TRAJ       : Word  := 16#8601;
+        RESULT_ERR_SOLVER     : Word  := 16#8602;
+
+        SYNC_NONE             : Int   := 0;
+        SYNC_PHASE            : Int   := 1;
+        SYNC_TIME             : Int   := 2;
+        SYNC_PER_DOF          : Int   := 3;
+
+        IFACE_POSITION        : Int   := 0;
+        IFACE_VELOCITY        : Int   := 1;
+
+        DISC_CONTINUOUS       : Int   := 0;
+        DISC_DISCRETE         : Int   := 1;
+    END_VAR
+END_DATA_BLOCK
