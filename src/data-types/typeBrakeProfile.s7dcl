@@ -1,0 +1,9 @@
+TYPE
+    typeBrakeProfile : STRUCT
+        t : Array[0..1] of LReal;
+        j : Array[0..1] of LReal;
+        a : Array[0..2] of LReal;
+        v : Array[0..2] of LReal;
+        p : Array[0..2] of LReal;
+    END_STRUCT;
+END_TYPE

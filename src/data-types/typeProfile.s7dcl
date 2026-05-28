@@ -1,0 +1,12 @@
+TYPE
+    typeProfile : STRUCT
+        t            : Array[0..6] of LReal;
+        j            : Array[0..6] of LReal;
+        a            : Array[0..7] of LReal;
+        v            : Array[0..7] of LReal;
+        p            : Array[0..7] of LReal;
+        direction    : Int := 1;
+        brake        : typeBrakeProfile;
+        controlSigns : Int := 0;
+    END_STRUCT;
+END_TYPE
