@@ -1,0 +1,28 @@
+[project]
+name = "ruckig-scl-tests"
+version = "0.1.0"
+description = "Test bench for ruckig-scl SCL implementation"
+requires-python = ">=3.12"
+dependencies = [
+    "pyruckig>=0.10",
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+    "pyyaml>=6.0",
+    "numpy>=1.26",
+    "plc-code @ file:///../203-plc-tools/packages/plc-code",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --strict-markers"
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 100
+select = ["E", "W", "F", "I", "B", "C4", "UP"]
+
+[tool.mypy]
+strict = true

@@ -1,0 +1,16 @@
+project:
+  name: "Ruckig SCL"
+  code: "RUCKIG"
+  version: "0.1.0"
+
+paths:
+  root: .
+
+code:
+  paths:
+    source: src/blocks
+    types: src/data-types
+    docs: docs/user
+    tests: tests/unit
+  quality:
+    enabled: true
