@@ -23,8 +23,6 @@ FUNCTION "ComputeMinDuration" : LReal
         tJerk      : LReal;
         tAcc       : LReal;
         tVel       : LReal;
-        sJerk      : LReal;
-        sAcc       : LReal;
         sToVmax    : LReal;
         cubicRoot  : LReal;
         vPeak      : LReal;
@@ -62,9 +60,9 @@ FUNCTION "ComputeMinDuration" : LReal
                 #tJerk := SQRT(#maxVel / #maxJerk);
                 #tAcc  := 0.0;
             END_IF;
-            #sJerk := #maxJerk * #tJerk * #tJerk * #tJerk;
-            #sAcc  := #maxAcc * #tAcc * (#tJerk + 0.5 * #tAcc);
-            #sToVmax := 2.0 * (#sJerk + #sAcc);
+            // Distance covered while accelerating from 0 to vMax then decelerating to 0
+            // Derived: sAccel = vMax * (tJerk + 0.5*tAcc), so sToVmax = 2*sAccel
+            #sToVmax := #maxVel * (2.0 * #tJerk + #tAcc);
         END_REGION
 
         REGION Case A long displacement trapezoidal

@@ -38,10 +38,14 @@ def test_zero_displacement_returns_zero(harness):
 
 
 def test_long_displacement_case_a_trapezoidal(harness):
-    """v_max=2, a_max=2, j_max=10 → t_j=0.2, t_a=0.8, sToVmax=2.08, displacement=10
-    → trapezoidal: t_v = (10 - 2.08) / 2 = 3.96; total = 2*(2*0.2 + 0.8) + 3.96 = 6.36"""
+    """v_max=2, a_max=2, j_max=10 → t_j=0.2, t_a=0.8
+    sToVmax = vMax*(2*tJ + tA) = 2*(0.4 + 0.8) = 2.4
+    t_v = (10 - 2.4) / 2 = 3.8
+    total = 2*(2*0.2 + 0.8) + 3.8 = 2.4 + 3.8 = 6.2"""
     result = _call(harness, p1=10.0, v_max=2.0, a_max=2.0, j_max=10.0)
-    expected = 2.0 * (2.0 * 0.2 + 0.8) + (10.0 - 2.08) / 2.0
+    t_j, t_a = 0.2, 0.8
+    s_to_vmax = 2.0 * (2.0 * t_j + t_a)
+    expected = 2.0 * (2.0 * t_j + t_a) + (10.0 - s_to_vmax) / 2.0
     assert result == pytest.approx(expected, abs=1e-6)
 
 
