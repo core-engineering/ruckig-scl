@@ -1,0 +1,44 @@
+{
+    S7_Author := "Martin C";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.1.0"
+}
+FUNCTION "IsFiniteLreal" : Bool
+    VAR_INPUT
+        x : LReal;
+    END_VAR
+    VAR_TEMP
+        absX : LReal;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      IsFiniteLreal
+            // Function:   Returns false if x is NaN or |x| > 1e308
+            // Family:     Ruckig
+            // Author:     Martin C
+            //==========================================================
+        END_REGION
+
+        REGION Algorithm
+            // NaN detection: NaN != NaN by IEEE 754
+            IF #x <> #x THEN
+                #IsFiniteLreal := false;
+                RETURN;
+            END_IF;
+
+            // Inf detection: SCL has no IS_FINITE intrinsic, use threshold
+            #absX := ABS(#x);
+            IF #absX > 1.0E308 THEN
+                #IsFiniteLreal := false;
+                RETURN;
+            END_IF;
+
+            #IsFiniteLreal := true;
+        END_REGION
+    END_NETWORK
+END_FUNCTION
