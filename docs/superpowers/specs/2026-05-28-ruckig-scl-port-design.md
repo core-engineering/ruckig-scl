@@ -56,7 +56,7 @@ This project ports Ruckig **Community feature set** directly from the C++ MIT so
 | Numerical precision | LREAL throughout | Parity with Ruckig C++ `double`, acceptable performance on FW V3.0+ |
 | DOF_MAX | 4 (compile-time constant) | Matches MLA use case; static array sizing required by SCL |
 | Enums | Not used — replaced by typed constants in FB or constants DB | Siemens ENUMs require Software Units; Martin's coding style uses constants |
-| Object orientation | Multi-instance composition (no inheritance) | Idiomatic Siemens; FB members declared as static instances of other FBs |
+| Object orientation | Single FB with persistent state + stateless FCs for algorithmic steps | Idiomatic Siemens style used by Martin: no METHOD on FB (FBs have a single implicit call), no Software Units; algorithmic functions are pure FCs |
 | Naming conventions | UpperCamelCase for blocks/UDTs, lowerCamelCase for variables, `type` prefix for UDTs, `inst` prefix for multi-instances, UPPER_SNAKE for constants | Siemens Programming Styleguide NF005-NF010 |
 
 ---
@@ -65,91 +65,134 @@ This project ports Ruckig **Community feature set** directly from the C++ MIT so
 
 ### 4.1 Overall layering
 
-Four layers, each with a single clear responsibility:
+One FB (with persistent state) orchestrates a set of pure FCs (stateless algorithmic steps):
 
 ```
-┌───────────────────────────────────────────────────────────────┐
-│  FB RuckigOtg  (public API, single point of entry)            │
-│                                                                │
-│  METHOD Update(InOut input, output) : RESULT                  │
-│    1. Validate input                                          │
-│    2. Compute trajectory if input changed                     │
-│    3. Advance time by cycleTime                               │
-│    4. Output current state (p, v, a)                          │
-└───────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│  FB RuckigOtg  (the only FB — public API, persistent state)         │
+│                                                                      │
+│  Single implicit cyclic call (no METHODs in Siemens style):         │
+│    instOtg(enable, input, cycleTime, reset, output, ...);            │
+│                                                                      │
+│  Internally per cycle:                                               │
+│    1. ValidateInput()             ← calls FC                         │
+│    2. detect input changes                                           │
+│    3. if changed, recompute trajectory by calling:                   │
+│         ComputeMinDuration()      ← calls FC, per axis               │
+│         SyncPhase/SyncTime/SyncNone/SyncPerDoF()  ← calls FC         │
+│         ComputeFinalProfile()     ← calls FC, per axis               │
+│         (ComputeBrake() if needed)← calls FC                         │
+│    4. AdvanceTime()               ← calls FC                         │
+│    5. StateAtTime()               ← calls FC, per axis               │
+└─────────────────────────────────────────────────────────────────────┘
                               │
-                              ▼  composition by static instances
-        ┌─────────────────────┼─────────────────────┐
-        ▼                     ▼                     ▼
+                              ▼  calls (no instances, FCs are stateless)
+   ┌──────────────────────────┼──────────────────────────┐
+   ▼                          ▼                          ▼
 ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-│ FB ProfileCalc   │  │ FB MultiAxisSync │  │ FB TrajEvaluator │
-│                  │  │                  │  │                  │
-│ - MinDuration    │  │ - SyncPhase      │  │ - AdvanceTime    │
-│ - FinalProfile   │  │ - SyncTime       │  │ - StateAtTime    │
-│ - BrakeHandling  │  │ - SyncNone       │  │                  │
+│ FC ValidateInput │  │ FC ComputeMin... │  │ FC SyncPhase     │
+│ FC ComputeFinal..│  │ FC SyncTime      │  │ FC SyncNone      │
+│ FC ComputeBrake  │  │ FC SyncPerDoF    │  │ FC AdvanceTime   │
+│ FC StateAtTime   │  │ FC IsFiniteLreal │  │                  │
 └──────────────────┘  └──────────────────┘  └──────────────────┘
 ```
 
+Rationale: Ruckig's algorithmic steps are all **stateless pure functions** of their inputs (compute a duration, compute a profile, sync trajectories, evaluate state at a time). They map naturally to Siemens FCs. The only state in the system is the persistent trajectory and previous-input cache held by `RuckigOtg` FB.
+
 ### 4.2 Components
 
-**FB `RuckigOtg`** — Public API (user-facing)
+**FB `RuckigOtg`** — Public API (the only FB)
+
+PLCopen-compatible interface (DA011 continuous-enable pattern):
 
 ```scl
 VAR_INPUT
-    input        : typeRuckigInput;
-    cycleTime    : LREAL;
+    enable    : BOOL;              // DA011: continuous enable
+    input     : typeRuckigInput;   // user setpoint and limits
+    cycleTime : LREAL;             // PLC cycle time in seconds
+    reset     : BOOL;              // pulse to invalidate trajectory and reset state
 END_VAR
 VAR_OUTPUT
-    output       : typeRuckigOutput;
-    result       : WORD;             // status code per DA014
+    valid     : BOOL;              // true when output is meaningful
+    busy      : BOOL;              // true while trajectory in execution
+    done      : BOOL;              // true when trajectory completed
+    error     : BOOL;              // true when status is in 16#8xxx range
+    status    : WORD;              // DA014 status code
+    output    : typeRuckigOutput;  // computed state (p, v, a)
 END_VAR
-VAR (stat, multi-instance composition)
-    instValidator: InputValidator;
-    instProfile  : ProfileCalc;
-    instSync     : MultiAxisSync;
-    instEval     : TrajEvaluator;
-    trajectory   : typeTrajectory;   // persistent state
-    prevInput    : typeRuckigInput;  // for change detection
+VAR  // persistent internal state
+    trajectory   : typeTrajectory;
+    prevInput    : typeRuckigInput;
 END_VAR
-METHOD Update()  : WORD              // public, cyclic entry point
-METHOD Reset()   : VOID              // explicit reset for error recovery
-METHOD ValidateInput() : WORD        // exposed for early validation
 ```
 
-**FB `ProfileCalc`** — Single-axis profile computation
+User-side usage:
 
 ```scl
-METHOD ComputeMinDuration(
-    currentPos, currentVel, currentAcc,
-    targetPos,  targetVel,  targetAcc,
-    maxVel, maxAcc, maxJerk : LREAL) : LREAL    // Ruckig Step 1
-METHOD ComputeFinalProfile(InOut profile : typeProfile;
-                           duration : LREAL) : WORD   // Ruckig Step 2
-METHOD ComputeBrake(InOut profile : typeProfile) : WORD  // degenerate cases
+instOtg(
+    enable    := TRUE,
+    input     := otgInput,
+    cycleTime := 0.010,
+    reset     := FALSE,
+    output    => otgOutput);
+
+IF instOtg.error THEN
+    // handle instOtg.status (16#82xx or 16#86xx)
+ELSIF instOtg.busy THEN
+    // use otgOutput.newPosition[i], etc.
+ELSIF instOtg.done THEN
+    // trajectory complete, target reached
+END_IF;
 ```
 
-**FB `MultiAxisSync`** — Multi-axis time synchronization
+**Algorithmic FCs (stateless pure functions)**:
 
 ```scl
-METHOD SyncPhase(InOut trajectory : typeTrajectory) : WORD
-METHOD SyncTime (InOut trajectory : typeTrajectory) : WORD
-METHOD SyncNone (InOut trajectory : typeTrajectory) : WORD
-METHOD SyncPerDoF(InOut trajectory : typeTrajectory) : WORD
+FC ValidateInput
+    VAR_INPUT  input : typeRuckigInput; END_VAR
+    Return     : WORD                                    // RESULT_OK or RESULT_ERR_*
+
+FC ComputeMinDuration                                    // Ruckig Step 1, per axis
+    VAR_INPUT
+        currentPos, currentVel, currentAcc : LREAL;
+        targetPos,  targetVel,  targetAcc  : LREAL;
+        maxVel, maxAcc, maxJerk            : LREAL;
+    END_VAR
+    Return : LREAL                                       // minimum duration
+
+FC ComputeFinalProfile                                   // Ruckig Step 2, per axis
+    VAR_IN_OUT profile : typeProfile; END_VAR
+    VAR_INPUT  duration : LREAL; END_VAR
+    Return : WORD
+
+FC ComputeBrake                                          // overshoot recovery
+    VAR_IN_OUT profile : typeProfile; END_VAR
+    Return : WORD
+
+FC SyncPhase                                             // multi-axis synchronization
+    VAR_IN_OUT trajectory : typeTrajectory; END_VAR
+    Return : WORD
+
+FC SyncTime                                              // (other modes: same signature)
+FC SyncNone
+FC SyncPerDoF
+
+FC AdvanceTime
+    VAR_IN_OUT trajectory : typeTrajectory; END_VAR
+    VAR_INPUT  dt : LREAL; END_VAR
+    Return : VOID                                        // (writes back to trajectory)
+
+FC StateAtTime
+    VAR_INPUT  profile : typeProfile; t : LREAL; END_VAR
+    VAR_OUTPUT p, v, a : LREAL; END_VAR
+    Return : VOID
+
+FC IsFiniteLreal                                         // utility for NaN/Inf detection
+    VAR_INPUT  x : LREAL; END_VAR
+    Return : BOOL
 ```
 
-**FB `TrajEvaluator`** — Time advancement and state extraction
-
-```scl
-METHOD AdvanceTime(InOut trajectory : typeTrajectory; dt : LREAL) : VOID
-METHOD StateAtTime(profile : typeProfile; t : LREAL;
-                   OUT p, v, a : LREAL) : VOID
-```
-
-**FB `InputValidator`** — Input parameter validation
-
-```scl
-METHOD Validate(input : typeRuckigInput) : WORD   // returns RESULT_OK or RESULT_ERR_*
-```
+All structured parameters (`typeProfile`, `typeTrajectory`, `typeRuckigInput`) are passed via `VAR_IN_OUT` (by reference) per PE003, avoiding copy overhead.
 
 ### 4.3 Data types (UDTs)
 
@@ -247,14 +290,14 @@ END_CONSTANT
 
 ## 5. Update() Lifecycle
 
-Six ordered steps per cycle:
+Inside the `RuckigOtg` FB cyclic call, six ordered steps:
 
-1. **Validate input** — `instValidator.Validate()`. On failure, output unchanged, `result := RESULT_ERR_*`, return early.
-2. **Change detection** — compare current input fields against `prevInput` with tolerances `EPS_*`. If any change, set `recomputeRequired := TRUE`.
-3. **Recompute trajectory (if required)** — for each active DoF call `instProfile.ComputeMinDuration()`, then `instSync.Sync*()` for synchronization, then `instProfile.ComputeFinalProfile()` per DoF. Reset `trajectory.currentTime := 0.0`, mark `isValid := TRUE`, save inputs to `prevInput`.
-4. **Advance time** — `trajectory.currentTime += cycleTime`. Detect end-of-trajectory when `currentTime ≥ trajectory.duration - EPS_TIME`.
-5. **Evaluate current state** — for each DoF call `instEval.StateAtTime()` to produce `output.newPosition[i], newVelocity[i], newAcceleration[i]`.
-6. **Update status** — set `result := RESULT_WORKING` or `RESULT_FINISHED`. Populate `output.trajectoryDuration` and `output.currentTime` for ETA queries downstream.
+1. **Validate input** — call `ValidateInput(input)`. On failure, set `error := TRUE`, `status := RESULT_ERR_*`, `valid := FALSE`, output unchanged, return early. If `enable = FALSE`, skip the rest (valid := FALSE, busy := FALSE, done := FALSE).
+2. **Change detection** — compare current input fields against `prevInput` with tolerances `EPS_*`. If any change (or `reset = TRUE`, or first call), set `recomputeRequired := TRUE`.
+3. **Recompute trajectory (if required)** — for each active DoF call `ComputeMinDuration(...)`, then call the appropriate `SyncPhase` / `SyncTime` / `SyncNone` / `SyncPerDoF` based on `input.synchronization`, then call `ComputeFinalProfile(...)` per DoF. Reset `trajectory.currentTime := 0.0`, mark `isValid := TRUE`, save inputs to `prevInput`.
+4. **Advance time** — call `AdvanceTime(trajectory, cycleTime)`. Detect end-of-trajectory when `currentTime ≥ trajectory.duration - EPS_TIME`.
+5. **Evaluate current state** — for each DoF call `StateAtTime(profile[i], currentTime, p, v, a)` to produce `output.newPosition[i], newVelocity[i], newAcceleration[i]`.
+6. **Update status** — set `busy := NOT done`, `done := trajectoryFinished`, `valid := TRUE`, `status := RESULT_WORKING` or `RESULT_FINISHED`. Populate `output.trajectoryDuration` and `output.currentTime` for ETA queries downstream.
 
 **Continuity guarantee**: at each recomputation, the new trajectory starts from `(currentPos, currentVel, currentAcc)` at `t=0`, so output at `t=dt` of the new profile is the lisse continuation of the previous cycle's output. No discontinuity despite full replan on every change.
 
@@ -395,12 +438,21 @@ v1.0  Production-ready (date TBD)
 │       ├── concepts.md
 │       └── examples/
 ├── src/                              # SCL source (one .s7dcl per block)
-│   ├── RuckigOtg.s7dcl
-│   ├── ProfileCalc.s7dcl
-│   ├── MultiAxisSync.s7dcl
-│   ├── TrajEvaluator.s7dcl
-│   ├── InputValidator.s7dcl
-│   ├── dbRuckigConst.s7dcl
+│   ├── blocks/
+│   │   ├── RuckigOtg.s7dcl            # the only FB (orchestrator + state)
+│   │   ├── ValidateInput.s7dcl        # FC
+│   │   ├── ComputeMinDuration.s7dcl   # FC (Ruckig Step 1)
+│   │   ├── ComputeFinalProfile.s7dcl  # FC (Ruckig Step 2)
+│   │   ├── ComputeBrake.s7dcl         # FC (overshoot recovery)
+│   │   ├── SyncPhase.s7dcl            # FC
+│   │   ├── SyncTime.s7dcl             # FC
+│   │   ├── SyncNone.s7dcl             # FC
+│   │   ├── SyncPerDoF.s7dcl           # FC
+│   │   ├── AdvanceTime.s7dcl          # FC
+│   │   ├── StateAtTime.s7dcl          # FC
+│   │   └── IsFiniteLreal.s7dcl        # FC (utility)
+│   ├── data-blocks/
+│   │   └── dbRuckigConst.s7dcl        # global constants DB
 │   └── data-types/
 │       ├── typeRuckigInput.s7dcl
 │       ├── typeRuckigOutput.s7dcl
@@ -438,7 +490,6 @@ v1.0  Production-ready (date TBD)
 |---|---|---|
 | LREAL performance on FW V3.0+ for cyclic Ruckig computation | Risk | To benchmark in v0.1 — target <2 ms per Update() at 4-DOF. If exceeded, optimization may require REAL fallback for inner solver. |
 | Profile case enumeration completeness | Risk | Ruckig handles ~7 profile cases (UDDU, UDUD, etc.) with empirical fallbacks. Coverage requires careful audit of upstream code, not just paper-following. |
-| Multi-Software-Unit organization in TIA Portal | Open | Decision deferred to v0.1: single-unit project initially; may split per-FB if compilation/scoping becomes problematic. |
 | Naming length for nested constants (e.g. `RESULT_ERR_CURR_VEL_EXCEEDS_MAX`) | Open | NF010 caps at 24 chars; abbreviations needed. Final names will be reviewed at first commit. |
 | `pyruckig` Python binding API stability | Low risk | Used as-is from upstream; if API breaks, pin to v0.x compatible version. |
 | OPC UA performance between PLCSIM Advanced and Python | Low risk | If too slow for fuzzing volume, fall back to PLCSIM batch mode or direct API. |
