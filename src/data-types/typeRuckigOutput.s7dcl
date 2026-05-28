@@ -1,0 +1,10 @@
+TYPE
+    typeRuckigOutput : STRUCT
+        newPosition        : Array[0..3] of LReal;
+        newVelocity        : Array[0..3] of LReal;
+        newAcceleration    : Array[0..3] of LReal;
+        workingOutput      : Bool := false;
+        trajectoryDuration : LReal := 0.0;
+        currentTime        : LReal := 0.0;
+    END_STRUCT;
+END_TYPE
