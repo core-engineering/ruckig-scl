@@ -102,10 +102,165 @@ Each subsequent version (v0.2, v0.3, ...) will receive its own design spec exten
 - Variable naming: `lowerCamelCase`
 - Block naming: `UpperCamelCase`
 - UDT naming: `UpperCamelCase` prefixed by `type` (e.g. `typeRuckigInput`)
+- DB naming: `UpperCamelCase` prefixed by `db` for global constants (e.g. `dbRuckigConst`)
 - Constants: `UPPER_SNAKE_CASE`
 - Multi-instances: prefix `inst` (e.g. `instOtg`)
 - Maximum identifier length: 24 characters (NF010)
 - LREAL equality comparisons forbidden — use `ABS(a - b) < EPS_*` (SE007)
+- Primitive type names use **MixedCase** in source: `LReal`, `Int`, `DInt`, `Bool`, `Word`, `USInt` — NOT `LREAL`/`INT`/etc. (Siemens TIA Portal export convention)
+
+### MANDATORY: TIA Portal export format for FBs and FCs
+
+All FBs and FCs in this library MUST follow the **TIA Portal SCL export format**, not the abstract "pure SCL" syntax. This is the format produced by TIA Portal when exporting a block as `.s7dcl`, and it is the only format the `plc-code` parser/executor handles correctly.
+
+Structural elements:
+
+1. **S7 attributes block at top** (mandatory):
+   ```scl
+   {
+       S7_Author := "Martin C";
+       S7_EditorMode := "SCL";
+       S7_Family := "Ruckig";
+       S7_Optimized := "TRUE";
+       S7_Version := "0.1.0"
+   }
+   ```
+
+2. **Block header** with quoted name and return type:
+   ```scl
+   FUNCTION "IsFiniteLreal" : Bool
+   ```
+   or
+   ```scl
+   FUNCTION_BLOCK "RuckigOtg"
+   ```
+
+3. **VAR sections** (VAR_INPUT, VAR_OUTPUT, VAR_IN_OUT, VAR, VAR_TEMP, VAR CONSTANT) before code body.
+
+4. **`{ S7_Language := "SCL" }` attribute** before the code body, immediately followed by `NETWORK` block — this is the only way `plc-code` recognizes the code as SCL.
+
+5. **Code wrapped in `NETWORK ... END_NETWORK`** — replaces the abstract `BEGIN ... END_FUNCTION` of pure SCL.
+
+6. **Local variable references prefixed with `#`** — inside the NETWORK, all variables declared in the VAR sections must be referenced as `#variableName` (not bare `variableName`). Constants and external DB references are NOT prefixed.
+
+7. **REGION blocks** (optional but encouraged) for code organization:
+   ```scl
+   REGION Block info header
+       // ... header comments ...
+   END_REGION
+   REGION Algorithm
+       // ... actual code ...
+   END_REGION
+   ```
+
+8. **End markers**: `END_NETWORK` then `END_FUNCTION` or `END_FUNCTION_BLOCK`.
+
+### Reference example — minimal FC
+
+```scl
+{
+    S7_Author := "Martin C";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.1.0"
+}
+FUNCTION "IsFiniteLreal" : Bool
+    VAR_INPUT
+        x : LReal;
+    END_VAR
+    VAR_TEMP
+        absX : LReal;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      IsFiniteLreal
+            // Function:   Returns false if x is NaN or magnitude > 1e308
+            // Family:     Ruckig
+            // Author:     Martin C
+            //==========================================================
+        END_REGION
+
+        REGION Algorithm
+            // NaN detection: NaN != NaN by IEEE 754
+            IF #x <> #x THEN
+                #IsFiniteLreal := false;
+                RETURN;
+            END_IF;
+
+            // Inf detection: SCL has no IS_FINITE intrinsic
+            #absX := ABS(#x);
+            IF #absX > 1.0E308 THEN
+                #IsFiniteLreal := false;
+                RETURN;
+            END_IF;
+
+            #IsFiniteLreal := true;
+        END_REGION
+    END_NETWORK
+END_FUNCTION
+```
+
+### Reference example — minimal FB
+
+```scl
+{
+    S7_Author := "Martin C";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.1.0"
+}
+FUNCTION_BLOCK "RuckigOtg"
+    VAR_INPUT
+        enable    : Bool := false;
+        input     : "typeRuckigInput";
+        cycleTime : LReal := 0.010;
+        reset     : Bool := false;
+    END_VAR
+    VAR_OUTPUT
+        valid     : Bool := false;
+        busy      : Bool := false;
+        done      : Bool := false;
+        error     : Bool := false;
+        status    : Word := 16#0000;
+        output    : "typeRuckigOutput";
+    END_VAR
+    VAR
+        trajectory : "typeTrajectory";
+        prevInput  : "typeRuckigInput";
+        firstCall  : Bool := true;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Main update lifecycle
+            IF NOT #enable THEN
+                #valid := false;
+                #busy := false;
+                #done := false;
+                #error := false;
+                #status := "dbRuckigConst".RESULT_FINISHED;
+                RETURN;
+            END_IF;
+
+            // ... rest of lifecycle ...
+        END_REGION
+    END_NETWORK
+END_FUNCTION_BLOCK
+```
+
+### Convention reminders for code body
+
+- **All local variables must be prefixed with `#`** when referenced inside `NETWORK`. Missing `#` is a parser error.
+- **DB references** use double-quoted form: `"dbRuckigConst".RESULT_FINISHED` (with the dot accessor).
+- **UDT type references** in VAR sections are double-quoted: `: "typeRuckigInput"`.
+- **Boolean literals** are lowercase: `true`, `false` (NOT `TRUE`/`FALSE`).
+- **Hex literals** use `16#` prefix: `16#7000`.
+- **Comments**: `//` single-line, `(* ... *)` multi-line.
 
 **plc-code executor usage pattern** (from `004-ruwais-program/tests/unit-tests`):
 
@@ -128,6 +283,26 @@ assert result is True
 - Ruckig C++ source: https://github.com/pantor/ruckig (MIT)
 - Ruckig paper: Berscheid & Kröger 2021, "Jerk-limited Real-time Trajectory Generation with Arbitrary Target States", RSS 2021
 - For v0.1 specifically, the simplified S-curve algorithm in Biagiotti & Melchiorri ch. 3 is sufficient and clearer than the full Ruckig case enumeration
+
+---
+
+### ⚠️ IMPORTANT: code shown in Tasks 7–15 below is in abstract "pure SCL"
+
+The code blocks shown in Tasks 7 to 15 (FCs and FB implementations) are written in an **abstract pure SCL** syntax for readability — `BEGIN ... END_FUNCTION`, bare variable names without `#` prefix, types like `LREAL`/`INT`/`BOOL` in uppercase. **This will NOT compile and will NOT parse with `plc-code`.**
+
+When implementing each of these tasks, you MUST translate the code into the **TIA Portal export format** described above:
+- Wrap algorithmic code in `{ S7_Language := "SCL" } NETWORK ... END_NETWORK`
+- Prefix every local variable reference inside `NETWORK` with `#` (e.g. `#x`, `#absX`, `#IsFiniteLreal`)
+- Use MixedCase type names (`LReal`, `Int`, `Bool`, `Word`, `DInt`)
+- Use lowercase booleans (`true`, `false`)
+- Reference UDT types in VAR with double-quoted form (`: "typeProfile"`)
+- Reference constants via DB: `"dbRuckigConst".RESULT_WORKING`
+- Add the `{ S7_Author := ...; S7_Optimized := "TRUE"; ... }` attributes block at top
+- Wrap the block header in quotes: `FUNCTION "IsFiniteLreal" : Bool`
+
+The **logic** in the code blocks remains valid (formulas, control flow, branching). Only the **syntax** must be translated. See the "Reference example — minimal FC" above for the exact target shape.
+
+UDTs (Tasks 2-5) and the DB (Task 6) — already implemented — use a simpler format without attributes block or NETWORK. That format is correct for those file types.
 
 ---
 
