@@ -206,7 +206,7 @@ dependencies = [
     "pytest-cov>=4.0",
     "pyyaml>=6.0",
     "numpy>=1.26",
-    "plc-code @ file:///../203-plc-tools/packages/plc-code",
+    "plc-code @ ../203-plc-tools/packages/plc-code",
 ]
 
 [tool.pytest.ini_options]
@@ -219,6 +219,8 @@ target-version = ["py312"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "C4", "UP"]
 
 [tool.mypy]
