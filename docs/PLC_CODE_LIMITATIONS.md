@@ -147,3 +147,63 @@ Tracked improvement candidates:
 - Inter-FC calls dispatched via `runtime.call_named_block()`
 - External DB references resolved through `block_search_paths`
 - REGION names containing hyphens or other operator characters
+- REGION names containing digits split on digit boundary
+  (e.g. `REGION Set 7 phase` → `# Set` + `7 phase...`)
+- Multi-line SCL expressions split into separate Python statements
+  (assignment continuation across lines becomes orphan expressions)
+
+## Limitation 5 — Multi-line SCL expressions
+
+**Problem.** SCL allows continuing an expression across multiple physical
+lines for readability:
+
+```scl
+#profile.v[#i + 1] := #profile.v[#i]
+                    + #profile.a[#i] * #dt
+                    + 0.5 * #profile.j[#i] * #dt * #dt;
+```
+
+The transpiler splits this into separate Python statements (newline-broken,
+not parenthesised), producing:
+
+```python
+self.profile.v[self.i + 1] = self.profile.v[self.i]
++ self.profile.a[self.i] * self.dt              # orphan expression!
++ 0.5 * self.profile.j[self.i] * self.dt * self.dt   # orphan!
+```
+
+The first line completes with `= self.profile.v[self.i]` and the rest are
+orphan expressions that have no effect.
+
+**Workaround.** Keep multi-operand assignments on a single source line in
+the SCL, even if it makes the line long. Line length is not enforced by
+TIA Portal.
+
+## Limitation 6 — REGION names containing digits
+
+**Problem.** `REGION Set 7 phase durations` transpiles to `# Set` then
+`7 phase durations` on a new Python source line. The transpiler splits
+the comment on the digit boundary.
+
+**Workaround.** Spell out digits as words in REGION names: `Set seven
+phase durations`.
+
+## Limitation 7 — VAR_OUTPUT on FUNCTION with return type Void
+
+**Status: works fine.** A `FUNCTION "Name" : Void` block can have
+`VAR_OUTPUT` declarations and they are reachable via
+`harness.get_output("name")` as expected. No workaround needed; just
+confirming.
+
+## Limitation 8 — VAR_IN_OUT read via `harness.get_var()` returns _AutoStruct
+
+**Status: works, but watch the access pattern.** A `VAR_IN_OUT` struct
+parameter, after the block executes, is read via `harness.get_var("name")`.
+The returned object is an `_AutoStruct` — **attribute access only**,
+not dict-style:
+
+```python
+profile = harness.get_var("profile")
+profile.p[7]      # ✓ correct
+profile["p"][7]   # ✗ returns _AutoStruct({}) (auto-creates empty sub-attr)
+```
