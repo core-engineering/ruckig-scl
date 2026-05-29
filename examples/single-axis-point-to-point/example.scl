@@ -1,0 +1,46 @@
+// Example: drive one axis point-to-point with ruckig-scl.
+//
+// This illustrative OB-style block configures the limits once, feeds the
+// current encoder position and the commanded target every cycle, and forwards
+// the generated position setpoint to the drive. Call it from a cyclic /
+// fast-motion OB at the same period passed as cycleTime (here 10 ms).
+
+ORGANIZATION_BLOCK "ExampleAxisMotion"
+    VAR
+        instOtg   : "RuckigOtg";
+        otgInput  : "typeRuckigInput";
+        otgOutput : "typeRuckigOutput";
+        initDone  : Bool := false;
+    END_VAR
+    VAR_TEMP
+        positionSetpoint : LReal;
+    END_VAR
+
+BEGIN
+    // --- One-time configuration (kinematic limits for axis 0) ---
+    IF NOT #initDone THEN
+        #otgInput.nDofs := 1;
+        #otgInput.enabled[0] := true;
+        #otgInput.maxVelocity[0] := 2.0;       // m/s   (or rad/s)
+        #otgInput.maxAcceleration[0] := 5.0;   // m/s^2
+        #otgInput.maxJerk[0] := 10.0;          // m/s^3
+        #initDone := true;
+    END_IF;
+
+    // --- Per-cycle inputs ---
+    #otgInput.currentPosition[0] := "diAxis".encoderPosition;   // feedback
+    #otgInput.targetPosition[0]  := "diAxis".commandedTarget;   // operator/sequencer
+
+    // --- Run the OTG once per cycle ---
+    #instOtg(enable    := "diAxis".motionEnable,
+             input     := #otgInput,
+             cycleTime := 0.010,
+             reset     := false,
+             output    => #otgOutput);
+
+    // --- Use the output ---
+    #positionSetpoint := #otgOutput.newPosition[0];
+    "qiAxis".positionSetpoint := #positionSetpoint;
+    "qiAxis".motionDone       := #instOtg.done;
+    "qiAxis".motionError      := #instOtg.error;
+END_ORGANIZATION_BLOCK

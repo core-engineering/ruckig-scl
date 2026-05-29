@@ -992,6 +992,12 @@ wheels = [
 ]
 
 [[package]]
+name = "ruckig"
+version = "0.17.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ba/6f/df330ab4a80622872d4d43139cc0118781d0927a688f0cfb4c12cd731f46/ruckig-0.17.3.tar.gz", hash = "sha256:5b06c4487b39e31524a5a81563a47741c1f698fd71ab79569558933c0b65f2b9", size = 886425, upload-time = "2026-03-24T09:24:12.304Z" }
+
+[[package]]
 name = "ruckig-scl-tests"
 version = "0.1.0"
 source = { virtual = "." }
@@ -1003,6 +1009,11 @@ dependencies = [
     { name = "pyyaml" },
 ]
 
+[package.optional-dependencies]
+parity = [
+    { name = "ruckig" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "numpy", specifier = ">=1.26" },
@@ -1010,7 +1021,9 @@ requires-dist = [
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-cov", specifier = ">=4.0" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "ruckig", marker = "extra == 'parity'", specifier = ">=0.10" },
 ]
+provides-extras = ["parity"]
 
 [[package]]
 name = "six"
