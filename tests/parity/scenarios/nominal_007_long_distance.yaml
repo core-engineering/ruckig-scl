@@ -1,0 +1,7 @@
+name: long distance
+n_dofs: 1
+target_position: [100.0]
+max_velocity: [5.0]
+max_acceleration: [10.0]
+max_jerk: [50.0]
+cycle_time: 0.010

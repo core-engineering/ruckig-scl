@@ -1,0 +1,7 @@
+name: small displacement
+n_dofs: 1
+target_position: [0.5]
+max_velocity: [3.0]
+max_acceleration: [8.0]
+max_jerk: [20.0]
+cycle_time: 0.010

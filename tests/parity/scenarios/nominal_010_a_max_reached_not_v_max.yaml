@@ -1,0 +1,7 @@
+name: a_max reached but not v_max (case C)
+n_dofs: 1
+target_position: [1.5]
+max_velocity: [10.0]
+max_acceleration: [3.0]
+max_jerk: [20.0]
+cycle_time: 0.010

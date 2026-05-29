@@ -11,10 +11,16 @@ dependencies = [
     "plc-code",
 ]
 
-# NOTE: the cross-implementation parity bench (Tasks 16-19) will add
-# `pyruckig>=0.10` as a dependency once it is implemented (requires network to
-# install from PyPI). Kept out of the dependency set for now so the unit-test
-# suite installs offline.
+[project.optional-dependencies]
+parity = [
+    "ruckig>=0.10",
+]
+
+# NOTE: the cross-implementation parity bench (Tasks 16-19) needs Ruckig's Python
+# bindings — the PyPI package is `ruckig` (NOT `pyruckig`); import as `ruckig`.
+# Add it (online) with:  uv add --optional parity "ruckig>=0.10"
+# then install with:      uv sync --extra parity
+# Kept out of the default dependency set so the unit-test suite installs offline.
 
 [tool.uv.sources]
 plc-code = { path = "../siemens-plc-tools/packages/plc-code", editable = true }
