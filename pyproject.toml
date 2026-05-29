@@ -4,13 +4,20 @@ version = "0.1.0"
 description = "Test bench for ruckig-scl SCL implementation"
 requires-python = ">=3.12"
 dependencies = [
-    "pyruckig>=0.10",
     "pytest>=8.0",
     "pytest-cov>=4.0",
     "pyyaml>=6.0",
     "numpy>=1.26",
-    "plc-code @ ../203-plc-tools/packages/plc-code",
+    "plc-code",
 ]
+
+# NOTE: the cross-implementation parity bench (Tasks 16-19) will add
+# `pyruckig>=0.10` as a dependency once it is implemented (requires network to
+# install from PyPI). Kept out of the dependency set for now so the unit-test
+# suite installs offline.
+
+[tool.uv.sources]
+plc-code = { path = "../siemens-plc-tools/packages/plc-code", editable = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

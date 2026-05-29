@@ -7,18 +7,13 @@ Three sub-cases:
 - Case C (medium): a_max reached but not v_max
 """
 import math
-from pathlib import Path
 
 import pytest
 
-from plc_code.executor import create_harness
-
-BLOCK_PATH = Path(__file__).parent.parent.parent / "src/blocks/ComputeMinDuration.s7dcl"
-
 
 @pytest.fixture
-def harness():
-    return create_harness(BLOCK_PATH)
+def harness(make_harness):
+    return make_harness("ComputeMinDuration.s7dcl")
 
 
 def _call(harness, *, p0=0.0, p1, v_max=2.0, a_max=5.0, j_max=10.0) -> float:

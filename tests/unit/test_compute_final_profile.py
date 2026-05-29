@@ -4,22 +4,13 @@ v0.1 scope: rest-to-rest profile generation. Checks that the 7 phase
 durations, jerk values, and boundary states are correctly populated.
 """
 import math
-from pathlib import Path
 
 import pytest
 
-from plc_code.executor import create_harness
-from plc_code.executor.runtime import PLCRuntime
-
-PROJECT_ROOT = Path(__file__).parent.parent.parent
-BLOCK_PATH = PROJECT_ROOT / "src/blocks/ComputeFinalProfile.s7dcl"
-SEARCH_PATHS = [PROJECT_ROOT / "src/data-types"]
-
 
 @pytest.fixture
-def harness():
-    rt = PLCRuntime(block_search_paths=SEARCH_PATHS)
-    return create_harness(BLOCK_PATH, runtime=rt)
+def harness(make_harness):
+    return make_harness("ComputeFinalProfile.s7dcl")
 
 
 def empty_profile() -> dict:

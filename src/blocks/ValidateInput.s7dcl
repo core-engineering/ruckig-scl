@@ -11,19 +11,6 @@ FUNCTION "ValidateInput" : Word
     END_VAR
     VAR_TEMP
         i : DInt;
-        v : LReal;
-    END_VAR
-    VAR CONSTANT
-        DOF_MAX               : DInt := 4;
-        INF_THRESHOLD         : LReal := 1.0E308;
-        RESULT_WORKING        : Word := 16#7000;
-        RESULT_ERR_VMAX       : Word := 16#8201;
-        RESULT_ERR_AMAX       : Word := 16#8202;
-        RESULT_ERR_JMAX       : Word := 16#8203;
-        RESULT_ERR_CURR_VEL   : Word := 16#8204;
-        RESULT_ERR_CURR_ACC   : Word := 16#8205;
-        RESULT_ERR_NDOFS      : Word := 16#8206;
-        RESULT_ERR_NON_FINITE : Word := 16#8207;
     END_VAR
 
     { S7_Language := "SCL" }
@@ -39,73 +26,67 @@ FUNCTION "ValidateInput" : Word
         END_REGION
 
         REGION nDofs bounds check
-            IF #input.nDofs < 1 OR #input.nDofs > #DOF_MAX THEN
-                #ValidateInput := #RESULT_ERR_NDOFS;
+            IF #input.nDofs < 1 OR #input.nDofs > "dbRuckigConst".DOF_MAX THEN
+                #ValidateInput := "dbRuckigConst".RESULT_ERR_NDOFS;
                 RETURN;
             END_IF;
         END_REGION
 
-        REGION Per axis validation
+        REGION Per-axis validation
             FOR #i := 0 TO #input.nDofs - 1 DO
-                // Finite value checks inlined (avoid inter-FC call)
-                #v := #input.currentPosition[#i];
-                IF #v <> #v OR ABS(#v) > #INF_THRESHOLD THEN
-                    #ValidateInput := #RESULT_ERR_NON_FINITE;
+                // Finite-value checks (calls the IsFiniteLreal sub-block)
+                IF NOT "IsFiniteLreal"(x := #input.currentPosition[#i]) THEN
+                    #ValidateInput := "dbRuckigConst".RESULT_ERR_NON_FINITE;
                     RETURN;
                 END_IF;
-                #v := #input.currentVelocity[#i];
-                IF #v <> #v OR ABS(#v) > #INF_THRESHOLD THEN
-                    #ValidateInput := #RESULT_ERR_NON_FINITE;
+                IF NOT "IsFiniteLreal"(x := #input.currentVelocity[#i]) THEN
+                    #ValidateInput := "dbRuckigConst".RESULT_ERR_NON_FINITE;
                     RETURN;
                 END_IF;
-                #v := #input.currentAcceleration[#i];
-                IF #v <> #v OR ABS(#v) > #INF_THRESHOLD THEN
-                    #ValidateInput := #RESULT_ERR_NON_FINITE;
+                IF NOT "IsFiniteLreal"(x := #input.currentAcceleration[#i]) THEN
+                    #ValidateInput := "dbRuckigConst".RESULT_ERR_NON_FINITE;
                     RETURN;
                 END_IF;
-                #v := #input.targetPosition[#i];
-                IF #v <> #v OR ABS(#v) > #INF_THRESHOLD THEN
-                    #ValidateInput := #RESULT_ERR_NON_FINITE;
+                IF NOT "IsFiniteLreal"(x := #input.targetPosition[#i]) THEN
+                    #ValidateInput := "dbRuckigConst".RESULT_ERR_NON_FINITE;
                     RETURN;
                 END_IF;
-                #v := #input.targetVelocity[#i];
-                IF #v <> #v OR ABS(#v) > #INF_THRESHOLD THEN
-                    #ValidateInput := #RESULT_ERR_NON_FINITE;
+                IF NOT "IsFiniteLreal"(x := #input.targetVelocity[#i]) THEN
+                    #ValidateInput := "dbRuckigConst".RESULT_ERR_NON_FINITE;
                     RETURN;
                 END_IF;
-                #v := #input.targetAcceleration[#i];
-                IF #v <> #v OR ABS(#v) > #INF_THRESHOLD THEN
-                    #ValidateInput := #RESULT_ERR_NON_FINITE;
+                IF NOT "IsFiniteLreal"(x := #input.targetAcceleration[#i]) THEN
+                    #ValidateInput := "dbRuckigConst".RESULT_ERR_NON_FINITE;
                     RETURN;
                 END_IF;
 
                 // Positive limit checks
                 IF #input.maxVelocity[#i] <= 0.0 THEN
-                    #ValidateInput := #RESULT_ERR_VMAX;
+                    #ValidateInput := "dbRuckigConst".RESULT_ERR_VMAX;
                     RETURN;
                 END_IF;
                 IF #input.maxAcceleration[#i] <= 0.0 THEN
-                    #ValidateInput := #RESULT_ERR_AMAX;
+                    #ValidateInput := "dbRuckigConst".RESULT_ERR_AMAX;
                     RETURN;
                 END_IF;
                 IF #input.maxJerk[#i] <= 0.0 THEN
-                    #ValidateInput := #RESULT_ERR_JMAX;
+                    #ValidateInput := "dbRuckigConst".RESULT_ERR_JMAX;
                     RETURN;
                 END_IF;
 
                 // Current state consistency
                 IF ABS(#input.currentVelocity[#i]) > #input.maxVelocity[#i] THEN
-                    #ValidateInput := #RESULT_ERR_CURR_VEL;
+                    #ValidateInput := "dbRuckigConst".RESULT_ERR_CURR_VEL;
                     RETURN;
                 END_IF;
                 IF ABS(#input.currentAcceleration[#i]) > #input.maxAcceleration[#i] THEN
-                    #ValidateInput := #RESULT_ERR_CURR_ACC;
+                    #ValidateInput := "dbRuckigConst".RESULT_ERR_CURR_ACC;
                     RETURN;
                 END_IF;
             END_FOR;
         END_REGION
 
         // All checks passed
-        #ValidateInput := #RESULT_WORKING;
+        #ValidateInput := "dbRuckigConst".RESULT_WORKING;
     END_NETWORK
 END_FUNCTION
