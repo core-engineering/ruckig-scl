@@ -1,209 +1,42 @@
-# plc-code transpiler limitations (discovered during ruckig-scl v0.1)
+# plc-code transpiler limitations — RESOLVED
 
-This file documents limitations of the `plc-code` SCL-to-Python transpiler
-(from `203-plc-tools/packages/plc-code`) discovered while implementing the
-v0.1 SCL blocks of `ruckig-scl`. These are **transpiler bugs or unsupported
-features**, not bugs in our SCL code. They affect what SCL constructs can
-be tested via the `plc-code` executor harness.
+> **Status (2026-05-29): all limitations below are fixed upstream in
+> [`siemens-plc-tools`](../../siemens-plc-tools) (branch `fix/transpiler-limitations`).**
+> `ruckig-scl` now depends on `siemens-plc-tools/packages/plc-code` and no longer
+> needs any of the workarounds. This file is kept as a historical record of the
+> issues found while porting Ruckig to SCL and how they were resolved.
 
-The SCL code itself remains 100% valid TIA Portal syntax — the limitations
-only apply to the **Python test bench**. When deployed to a real TIA Portal
-project, the constructs we work around here can be re-introduced in their
-ideal form.
+The SCL code itself was always 100% valid TIA Portal syntax — the limitations
+only affected the **Python test bench**. They have now been fixed in the
+transpiler, so the idiomatic SCL forms are used directly throughout `ruckig-scl`.
 
-## Limitation 1 — Inter-FC calls with named parameters
+## What was fixed
 
-**Problem.** Calling another FC from inside a block, with the standard SCL
-named-parameter syntax, transpiles incorrectly:
+| # | Symptom in the test bench | Root cause | Fix |
+|---|---------------------------|-----------|-----|
+| 1 | Inter-FC call `"IsFiniteLreal"(x := #v)` in an expression became a string literal with `:=`→`==` | named-block calls were only handled in statement position; FC return value not captured | `ExpressionTranslator` extracts the call as a protected placeholder; `call_named_block` returns the `FUNCTION` value |
+| 2 | `"dbRuckigConst".RESULT_X` stayed a string / `int = 0` | parser inserts spaces around the dot (`"db" . X`); DB pattern didn't match, and the enum-string collector grabbed `< "db"` | DB pattern tolerates whitespace; collector ignores quoted names followed by `.`/`(`; constant DBs auto-load from search paths |
+| 3 | `REGION Per-axis validation` leaked `- axis validation` as code | `_parse_region` stopped the name at the first non-identifier token | name now consumes the whole line |
+| 5 | Multi-line RHS in a REGION dropped continuation lines | `_preprocess` only joined a continuation ending in `:=` | also joins operator-led continuations |
+| 6 | `REGION Set 7 phase durations` leaked `7 phase durations` | same as #3 (digit) | same fix |
+| 7 | Hex literal `16#8201` in code became `16 self.8201` | `#` parsed as instance-var prefix before hex translation | hex translation runs first and tolerates parser-inserted spaces |
 
-```scl
-IF NOT "IsFiniteLreal"(x := #input.currentPosition[#i]) THEN
-```
+(Items 4 and 8 in the original notes were conventions, not bugs.)
 
-Becomes (in generated Python):
+## Idiomatic forms now used in ruckig-scl
 
-```python
-if not "IsFiniteLreal" ( x == self.input.currentPosition[self.i] ):
-```
+- **Shared constants** live only in `dbRuckigConst` and are referenced as
+  `"dbRuckigConst".RESULT_WORKING`, `"dbRuckigConst".EPS_POSITION`, etc.
+  The test bench auto-loads the DB from `src/data-blocks` via the runtime's
+  block search paths (see `tests/conftest.py`).
+- **Finite checks** call the `IsFiniteLreal` sub-block:
+  `IF NOT "IsFiniteLreal"(x := #input.currentPosition[#i]) THEN ...`.
+- **REGION names** use their natural form (`Per-axis validation`,
+  `Set 7 phase durations and jerks`).
+- **Long expressions** (e.g. the boundary-state integration) span multiple lines.
 
-Two errors at once:
-- `"IsFiniteLreal"` is treated as a Python string literal (not a function
-  call dispatched to the runtime)
-- `:=` (SCL named-parameter assignment) is transpiled to `==` (Python
-  comparison) instead of `=` (Python keyword argument)
+## Test harness setup
 
-**Workaround.** Inline the called FC's logic in the calling block. Yes, this
-duplicates code — but it lets the test bench run. Move the duplication
-back into a real call when deploying to TIA Portal.
-
-## Limitation 2 — External DB references
-
-**Problem.** References to a global DB like `"dbRuckigConst".RESULT_WORKING`
-do not resolve. The transpiler treats `"dbRuckigConst"` as a string constant
-(typed `int = 0` in the generated dataclass).
-
-**Workaround.** Use **local** `VAR CONSTANT` blocks in each FC/FB that needs
-the codes. Duplicates the constant definitions across blocks, but
-self-contained — no external DB needed at test time. When deploying to TIA
-Portal, the local constants can stay, or be replaced by DB references if
-desired.
-
-## Limitation 3 — REGION names with hyphens
-
-**Problem.** A `REGION Per-axis validation` produces a transpiled comment
-`# Per-axis validation`, but the transpiler splits this on the hyphen,
-yielding two lines: `# Per` then `- axis validation`, which is invalid
-Python (a bare `- name` expression).
-
-**Workaround.** Use spaces or underscores in REGION names instead of
-hyphens. `REGION Per axis validation` works, `REGION Per_axis_validation`
-works.
-
-## Limitation 4 — `harness.get_output("FunctionName")` for FCs
-
-**Not a limitation, just an undocumented convention.** For an FC (typed
-FUNCTION), the return value is exposed by the harness under the **function
-name itself**:
-
-```python
-result = harness.get_output("ValidateInput")  # not "result" or anything else
-```
-
-## Pattern that works
-
-```scl
-{
-    S7_Author := "Martin C";
-    S7_EditorMode := "SCL";
-    S7_Family := "Ruckig";
-    S7_Optimized := "TRUE";
-    S7_Version := "0.1.0"
-}
-FUNCTION "MyFunc" : Word
-    VAR_IN_OUT
-        someStruct : _.typeMyUdt;        // _. prefix for UDT references
-    END_VAR
-    VAR_TEMP
-        i : DInt;
-        tmp : LReal;
-    END_VAR
-    VAR CONSTANT
-        // Inline all status codes locally instead of DB references
-        OK_CODE  : Word := 16#7000;
-        ERR_CODE : Word := 16#8201;
-    END_VAR
-
-    { S7_Language := "SCL" }
-    NETWORK
-        REGION Block header
-            // ...
-        END_REGION
-
-        REGION Validation                                 // No hyphens in REGION names
-            FOR #i := 0 TO #someStruct.count - 1 DO
-                // Inline what would otherwise be a function call
-                #tmp := #someStruct.values[#i];
-                IF #tmp <> #tmp THEN                       // NaN check inlined
-                    #MyFunc := #ERR_CODE;
-                    RETURN;
-                END_IF;
-            END_FOR;
-        END_REGION
-
-        #MyFunc := #OK_CODE;
-    END_NETWORK
-END_FUNCTION
-```
-
-## Test harness setup with search paths
-
-When a block references UDTs defined in `src/data-types/`, the harness
-needs `block_search_paths` configured:
-
-```python
-from plc_code.executor import create_harness
-from plc_code.executor.runtime import PLCRuntime
-
-PROJECT_ROOT = Path(__file__).parent.parent.parent
-SEARCH_PATHS = [
-    PROJECT_ROOT / "src/blocks",
-    PROJECT_ROOT / "src/data-blocks",
-    PROJECT_ROOT / "src/data-types",
-]
-
-@pytest.fixture
-def harness():
-    rt = PLCRuntime(block_search_paths=SEARCH_PATHS)
-    return create_harness(BLOCK_PATH, runtime=rt)
-```
-
-## Improvements to upstream
-
-These limitations should be fixed in `plc-code` upstream (in `203-plc-tools/packages/plc-code`)
-to avoid the workarounds here. Until then, follow the patterns documented
-in this file.
-
-Tracked improvement candidates:
-- Inter-FC calls dispatched via `runtime.call_named_block()`
-- External DB references resolved through `block_search_paths`
-- REGION names containing hyphens or other operator characters
-- REGION names containing digits split on digit boundary
-  (e.g. `REGION Set 7 phase` → `# Set` + `7 phase...`)
-- Multi-line SCL expressions split into separate Python statements
-  (assignment continuation across lines becomes orphan expressions)
-
-## Limitation 5 — Multi-line SCL expressions
-
-**Problem.** SCL allows continuing an expression across multiple physical
-lines for readability:
-
-```scl
-#profile.v[#i + 1] := #profile.v[#i]
-                    + #profile.a[#i] * #dt
-                    + 0.5 * #profile.j[#i] * #dt * #dt;
-```
-
-The transpiler splits this into separate Python statements (newline-broken,
-not parenthesised), producing:
-
-```python
-self.profile.v[self.i + 1] = self.profile.v[self.i]
-+ self.profile.a[self.i] * self.dt              # orphan expression!
-+ 0.5 * self.profile.j[self.i] * self.dt * self.dt   # orphan!
-```
-
-The first line completes with `= self.profile.v[self.i]` and the rest are
-orphan expressions that have no effect.
-
-**Workaround.** Keep multi-operand assignments on a single source line in
-the SCL, even if it makes the line long. Line length is not enforced by
-TIA Portal.
-
-## Limitation 6 — REGION names containing digits
-
-**Problem.** `REGION Set 7 phase durations` transpiles to `# Set` then
-`7 phase durations` on a new Python source line. The transpiler splits
-the comment on the digit boundary.
-
-**Workaround.** Spell out digits as words in REGION names: `Set seven
-phase durations`.
-
-## Limitation 7 — VAR_OUTPUT on FUNCTION with return type Void
-
-**Status: works fine.** A `FUNCTION "Name" : Void` block can have
-`VAR_OUTPUT` declarations and they are reachable via
-`harness.get_output("name")` as expected. No workaround needed; just
-confirming.
-
-## Limitation 8 — VAR_IN_OUT read via `harness.get_var()` returns _AutoStruct
-
-**Status: works, but watch the access pattern.** A `VAR_IN_OUT` struct
-parameter, after the block executes, is read via `harness.get_var("name")`.
-The returned object is an `_AutoStruct` — **attribute access only**,
-not dict-style:
-
-```python
-profile = harness.get_var("profile")
-profile.p[7]      # ✓ correct
-profile["p"][7]   # ✗ returns _AutoStruct({}) (auto-creates empty sub-attr)
-```
+`tests/conftest.py` exposes a `make_harness` factory with the standard search
+paths (`src/blocks`, `src/data-types`, `src/data-blocks`) so inter-FC calls,
+UDTs and the constant DB all resolve automatically.

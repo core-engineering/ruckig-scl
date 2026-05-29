@@ -27,11 +27,6 @@ FUNCTION "ComputeMinDuration" : LReal
         cubicRoot  : LReal;
         vPeak      : LReal;
     END_VAR
-    VAR CONSTANT
-        EPS_POSITION : LReal := 1.0E-12;
-        EPS_DERIV    : LReal := 1.0E-8;
-    END_VAR
-
     { S7_Language := "SCL" }
     NETWORK
         REGION Block header
@@ -47,7 +42,7 @@ FUNCTION "ComputeMinDuration" : LReal
         REGION Trivial case
             #delta := #targetPos - #currentPos;
             #absDelta := ABS(#delta);
-            IF #absDelta < #EPS_POSITION THEN
+            IF #absDelta < "dbRuckigConst".EPS_POSITION THEN
                 #ComputeMinDuration := 0.0;
                 RETURN;
             END_IF;
@@ -76,7 +71,7 @@ FUNCTION "ComputeMinDuration" : LReal
         REGION Case B triangular jerk
             // v_max not reached. Try triangular: t_j = (absDelta/(2*j))^(1/3)
             #cubicRoot := EXP(LN(#absDelta / (2.0 * #maxJerk)) / 3.0);
-            IF #maxJerk * #cubicRoot <= #maxAcc + #EPS_DERIV THEN
+            IF #maxJerk * #cubicRoot <= #maxAcc + "dbRuckigConst".EPS_DERIV THEN
                 #ComputeMinDuration := 4.0 * #cubicRoot;
                 RETURN;
             END_IF;

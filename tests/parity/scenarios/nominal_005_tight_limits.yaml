@@ -1,0 +1,7 @@
+name: tight limits
+n_dofs: 1
+target_position: [5.0]
+max_velocity: [0.5]
+max_acceleration: [0.5]
+max_jerk: [1.0]
+cycle_time: 0.010

@@ -1,20 +1,10 @@
 """Unit tests for StateAtTime FC."""
-from pathlib import Path
-
 import pytest
-
-from plc_code.executor import create_harness
-from plc_code.executor.runtime import PLCRuntime
-
-PROJECT_ROOT = Path(__file__).parent.parent.parent
-BLOCK_PATH = PROJECT_ROOT / "src/blocks/StateAtTime.s7dcl"
-SEARCH_PATHS = [PROJECT_ROOT / "src/data-types"]
 
 
 @pytest.fixture
-def harness():
-    rt = PLCRuntime(block_search_paths=SEARCH_PATHS)
-    return create_harness(BLOCK_PATH, runtime=rt)
+def harness(make_harness):
+    return make_harness("StateAtTime.s7dcl")
 
 
 def trapezoidal_profile(p0=0.0, p1=10.0, vmax=2.0, amax=2.0, jmax=10.0) -> dict:

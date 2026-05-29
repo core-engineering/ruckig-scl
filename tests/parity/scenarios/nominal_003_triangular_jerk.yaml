@@ -1,0 +1,7 @@
+name: triangular jerk (neither v_max nor a_max)
+n_dofs: 1
+target_position: [0.05]
+max_velocity: [5.0]
+max_acceleration: [10.0]
+max_jerk: [10.0]
+cycle_time: 0.010

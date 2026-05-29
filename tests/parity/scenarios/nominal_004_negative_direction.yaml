@@ -1,0 +1,7 @@
+name: negative direction
+n_dofs: 1
+target_position: [-3.0]
+max_velocity: [2.0]
+max_acceleration: [4.0]
+max_jerk: [15.0]
+cycle_time: 0.010
