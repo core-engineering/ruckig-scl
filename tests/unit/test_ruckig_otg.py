@@ -79,6 +79,19 @@ def test_full_trajectory_reaches_target(harness):
     assert harness.get_output("status") == 0x0000
 
 
+def test_zero_displacement_finishes_immediately(harness):
+    """target == current -> done immediately, no error, position holds at p0."""
+    inp = default_input()
+    inp["targetPosition"][0] = 0.0  # current position is also 0.0
+    harness.set_inputs(enable=True, input=inp, cycleTime=0.010, reset=False)
+    harness.execute()
+    assert harness.get_output("error") is False
+    assert harness.get_output("done") is True
+    assert harness.get_output("status") == 0x0000
+    out = harness.get_output("output")
+    assert out.newPosition[0] == pytest.approx(0.0, abs=1e-12)
+
+
 def test_output_continuity_no_discontinuity(harness):
     """Position change per cycle must not exceed v_max * dt (smooth motion)."""
     inp = default_input()

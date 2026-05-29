@@ -27,6 +27,7 @@ FUNCTION_BLOCK "RuckigOtg"
     END_VAR
     VAR_TEMP
         validationResult  : Word;
+        profileResult     : Word;
         recomputeRequired : Bool;
     END_VAR
 
@@ -91,7 +92,9 @@ FUNCTION_BLOCK "RuckigOtg"
                     maxJerk := #input.maxJerk[0]);
                 #trajectory.duration := #trajectory.independentMinDurations[0];
 
-                IF "ComputeFinalProfile"(profile := #trajectory.profiles[0], duration := #trajectory.duration, p0 := #input.currentPosition[0], p1 := #input.targetPosition[0], vMax := #input.maxVelocity[0], aMax := #input.maxAcceleration[0], jMax := #input.maxJerk[0]) <> "dbRuckigConst".RESULT_WORKING THEN
+                #profileResult := "ComputeFinalProfile"(profile := #trajectory.profiles[0], duration := #trajectory.duration, p0 := #input.currentPosition[0], p1 := #input.targetPosition[0], vMax := #input.maxVelocity[0], aMax := #input.maxAcceleration[0], jMax := #input.maxJerk[0]);
+                // WORKING (normal) and FINISHED (trivial zero-displacement) are both success.
+                IF #profileResult <> "dbRuckigConst".RESULT_WORKING AND #profileResult <> "dbRuckigConst".RESULT_FINISHED THEN
                     #valid := false;
                     #busy := false;
                     #done := false;
