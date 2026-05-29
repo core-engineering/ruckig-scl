@@ -1,0 +1,136 @@
+{
+    S7_Author := "Martin C";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.1.0"
+}
+FUNCTION_BLOCK "RuckigOtg"
+    VAR_INPUT
+        enable    : Bool := false;
+        input     : _.typeRuckigInput;
+        cycleTime : LReal := 0.010;
+        reset     : Bool := false;
+    END_VAR
+    VAR_OUTPUT
+        valid  : Bool := false;
+        busy   : Bool := false;
+        done   : Bool := false;
+        error  : Bool := false;
+        status : Word := 16#0000;
+        output : _.typeRuckigOutput;
+    END_VAR
+    VAR
+        trajectory : _.typeTrajectory;
+        prevInput  : _.typeRuckigInput;
+        firstCall  : Bool := true;
+    END_VAR
+    VAR_TEMP
+        validationResult  : Word;
+        recomputeRequired : Bool;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      RuckigOtg
+            // Function:   Online Trajectory Generator (PLCopen DA011).
+            //             Called once per PLC cycle while enabled; emits a
+            //             jerk-limited single-axis trajectory toward the
+            //             target, with valid/busy/done/error + DA014 status.
+            // Family:     Ruckig
+            // Author:     Martin C
+            //==========================================================
+        END_REGION
+
+        REGION Disabled - force outputs and reset
+            IF NOT #enable THEN
+                #valid := false;
+                #busy := false;
+                #done := false;
+                #error := false;
+                #status := "dbRuckigConst".RESULT_FINISHED;
+                #firstCall := true;
+                #trajectory.isValid := false;
+                RETURN;
+            END_IF;
+        END_REGION
+
+        REGION Validation
+            #validationResult := "ValidateInput"(input := #input);
+            IF #validationResult <> "dbRuckigConst".RESULT_WORKING THEN
+                #valid := false;
+                #busy := false;
+                #done := false;
+                #error := true;
+                #status := #validationResult;
+                RETURN;
+            END_IF;
+        END_REGION
+
+        REGION Change detection
+            #recomputeRequired := #firstCall OR #reset OR NOT #trajectory.isValid
+                OR ABS(#input.targetPosition[0] - #prevInput.targetPosition[0]) > "dbRuckigConst".EPS_POSITION
+                OR ABS(#input.maxVelocity[0] - #prevInput.maxVelocity[0]) > "dbRuckigConst".EPS_VELOCITY
+                OR ABS(#input.maxAcceleration[0] - #prevInput.maxAcceleration[0]) > "dbRuckigConst".EPS_DERIV
+                OR ABS(#input.maxJerk[0] - #prevInput.maxJerk[0]) > "dbRuckigConst".EPS_DERIV;
+        END_REGION
+
+        REGION Recompute trajectory
+            IF #recomputeRequired THEN
+                #trajectory.independentMinDurations[0] := "ComputeMinDuration"(
+                    currentPos := #input.currentPosition[0],
+                    currentVel := #input.currentVelocity[0],
+                    currentAcc := #input.currentAcceleration[0],
+                    targetPos := #input.targetPosition[0],
+                    targetVel := #input.targetVelocity[0],
+                    targetAcc := #input.targetAcceleration[0],
+                    maxVel := #input.maxVelocity[0],
+                    maxAcc := #input.maxAcceleration[0],
+                    maxJerk := #input.maxJerk[0]);
+                #trajectory.duration := #trajectory.independentMinDurations[0];
+
+                IF "ComputeFinalProfile"(profile := #trajectory.profiles[0], duration := #trajectory.duration, p0 := #input.currentPosition[0], p1 := #input.targetPosition[0], vMax := #input.maxVelocity[0], aMax := #input.maxAcceleration[0], jMax := #input.maxJerk[0]) <> "dbRuckigConst".RESULT_WORKING THEN
+                    #valid := false;
+                    #busy := false;
+                    #done := false;
+                    #error := true;
+                    #status := "dbRuckigConst".RESULT_ERR_TRAJ;
+                    #trajectory.isValid := false;
+                    RETURN;
+                END_IF;
+
+                #trajectory.currentTime := 0.0;
+                #trajectory.isValid := true;
+                #prevInput := #input;
+                #firstCall := false;
+            END_IF;
+        END_REGION
+
+        REGION Advance and evaluate
+            "AdvanceTime"(trajectory := #trajectory, dt := #cycleTime);
+            "StateAtTime"(profile := #trajectory.profiles[0], t := #trajectory.currentTime, p => #output.newPosition[0], v => #output.newVelocity[0], a => #output.newAcceleration[0]);
+            #output.trajectoryDuration := #trajectory.duration;
+            #output.currentTime := #trajectory.currentTime;
+        END_REGION
+
+        REGION Status flags and code
+            IF #trajectory.currentTime >= #trajectory.duration - "dbRuckigConst".EPS_TIME THEN
+                #valid := true;
+                #busy := false;
+                #done := true;
+                #error := false;
+                #status := "dbRuckigConst".RESULT_FINISHED;
+                #output.workingOutput := false;
+            ELSE
+                #valid := true;
+                #busy := true;
+                #done := false;
+                #error := false;
+                #status := "dbRuckigConst".RESULT_WORKING;
+                #output.workingOutput := true;
+            END_IF;
+        END_REGION
+    END_NETWORK
+END_FUNCTION_BLOCK
