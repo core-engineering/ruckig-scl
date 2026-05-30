@@ -119,3 +119,26 @@ def test_non_finite_target_returns_err(harness):
     inp = make_valid_input()
     inp["targetVelocity"] = [math.inf, 0.0, 0.0, 0.0]
     assert _call(harness, inp) == RESULT_ERR_NON_FINITE
+
+
+def test_nonzero_target_velocity_and_acceleration_accepted(harness):
+    """v0.2: arbitrary target state. A finite, within-limits non-zero target
+    velocity and acceleration must validate (moving-target / approach-and-cruise
+    use case), not be rejected."""
+    inp = make_valid_input()
+    inp["targetVelocity"] = [1.0, 0.0, 0.0, 0.0]      # < maxVelocity[0]=2.0
+    inp["targetAcceleration"] = [0.5, 0.0, 0.0, 0.0]  # < maxAcceleration[0]=5.0
+    assert _call(harness, inp) == RESULT_WORKING
+
+
+def test_negative_target_velocity_accepted(harness):
+    """A negative within-limits target velocity is also valid."""
+    inp = make_valid_input()
+    inp["targetVelocity"] = [-1.5, 0.0, 0.0, 0.0]
+    assert _call(harness, inp) == RESULT_WORKING
+
+
+def test_non_finite_target_acceleration_returns_err(harness):
+    inp = make_valid_input()
+    inp["targetAcceleration"] = [math.nan, 0.0, 0.0, 0.0]
+    assert _call(harness, inp) == RESULT_ERR_NON_FINITE
