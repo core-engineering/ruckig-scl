@@ -60,6 +60,40 @@ FUNCTION "ComputeProfile1Axis" : Word
         den2J       : LReal;
         den2aMaxJ   : LReal;
         den2aMinJ   : LReal;
+        // time_all_none_acc0_acc1 (quartic family) scratch
+        roots     : Array[0..3] of LReal;
+        rootCount : Int;
+        k         : Int;
+        t         : LReal;
+        tMinW     : LReal;
+        tMaxW     : LReal;
+        orig      : LReal;
+        deriv     : LReal;
+        step      : LReal;
+        hh1       : LReal;
+        hh0       : LReal;
+        h5        : LReal;
+        poly0 : LReal;
+        poly1 : LReal;
+        poly2 : LReal;
+        poly3 : LReal;
+        h2_none : LReal;
+        h2_h2   : LReal;
+        h3_acc0 : LReal;
+        h2_acc0 : LReal;
+        h0_acc0 : LReal;
+        h3_acc1 : LReal;
+        h2_acc1 : LReal;
+        h0_acc1 : LReal;
+        den_jj      : LReal;
+        den_3jjj    : LReal;
+        den_2amaxj  : LReal;
+        den_jjj     : LReal;
+        den_jjjj    : LReal;
+        den_12jjjj  : LReal;
+        den_12jj    : LReal;
+        num_none    : LReal;
+        den_none    : LReal;
     END_VAR
 
     { S7_Language := "SCL" }
@@ -339,6 +373,268 @@ FUNCTION "ComputeProfile1Axis" : Word
                     END_IF;
                 END_IF;
             END_IF;
+        END_REGION
+
+        REGION Quartic precompute (none/acc0/acc1)
+            // Shared denominators. Transpiler quirk: never divide by a
+            // parenthesized product, so every such denominator is a scalar.
+            #den_jj     := #jMax_jMax;
+            #den_3jjj   := 3.0 * #jMax * #jMax_jMax;
+            #den_2amaxj := 2.0 * #aMax * #jMax;
+            #den_jjj    := #jMax_jMax * #jMax;
+            #den_jjjj   := #jMax_jMax * #jMax_jMax;
+            #den_12jjjj := 12.0 * #jMax_jMax * #jMax_jMax;
+            #den_12jj   := 12.0 * #jMax_jMax;
+        END_REGION
+
+        REGION Candidate NONE (quartic, no plateau, no accel limit)
+            // Ruckig time_all_none_acc0_acc1 / NONE sub-case. A monic quartic in
+            // the phase-3 time; each real root in [t_min,t_max] is Newton-refined
+            // once, mapped to the 7 segment times (only jerk phases active), and
+            // validated by CheckProfile. UDDU jerk pattern (already set globally).
+            #h2_none := (#a0_a0 - #af_af) / #den2J + (#vT - #v0);
+            #h2_h2   := #h2_none * #h2_none;
+            #num_none := #a0 - #aT;
+            #tMinW    := #num_none / #jMax;
+            #num_none := #aMax - #aMin;
+            #tMaxW    := #num_none / #jMax;
+
+            // monic quartic polynom_none[0..3] (coeffs of t^3,t^2,t^1,t^0)
+            #poly0 := 0.0;
+            #poly1 := -2.0 * (#a0_a0 + #af_af - 2.0 * #jMax * (#v0 + #vT)) / #den_jj;
+            #poly2 := 4.0 * (#a0_p3 - #af_p3 + 3.0 * #jMax * (#aT * #vT - #a0 * #v0)) / #den_3jjj
+                - 4.0 * #pd / #jMax;
+            #poly3 := -#h2_h2 / #den_jj;
+
+            "SolveQuartic"(a := 1.0, b := #poly0, c := #poly1, d := #poly2, e := #poly3,
+                roots => #roots, count => #rootCount);
+
+            FOR #k := 0 TO #rootCount - 1 DO
+                #t := #roots[#k];
+                // a zero (or negative) phase-3 time is degenerate; skip it. This
+                // also guards the #hh0 := h2_none/(2*jMax*t) division below
+                // (C++ tolerates the 0/0 -> NaN; the transpiler raises instead).
+                IF #t > 2.220446049250313E-16 AND #t >= #tMinW AND #t <= #tMaxW THEN
+                    // single Newton step on pd
+                    #hh1 := #jMax * #t * #t;
+                    #num_none := 4.0 * #a0_p3 + 2.0 * #af_p3
+                        - 6.0 * #a0_a0 * (#aT + 2.0 * #jMax * #t)
+                        + 12.0 * (#aT - #a0) * #jMax * #v0
+                        + 3.0 * #jMax_jMax * (-4.0 * #pd + (#hh1 + 8.0 * #v0) * #t);
+                    // precompute product denominators (transpiler: no /(a*b))
+                    #den_none := 4.0 * #jMax * #t;
+                    #orig := -#h2_h2 / #den_none + #h2_none * (#aT / #jMax + #t)
+                        + #num_none / #den_12jj;
+                    #den_none := 4.0 * #hh1;
+                    #deriv := #h2_none + 2.0 * #v0 - #a0_a0 / #jMax
+                        + #h2_h2 / #den_none + 3.0 * #hh1 / 4.0;
+                    #t := #t - #orig / #deriv;
+
+                    #den_none := 2.0 * #jMax * #t;
+                    #hh0 := #h2_none / #den_none;
+                    #profile.t[0] := #hh0 + #t / 2.0 - #a0 / #jMax;
+                    #profile.t[1] := 0.0;
+                    #profile.t[2] := #t;
+                    #profile.t[3] := 0.0;
+                    #profile.t[4] := 0.0;
+                    #profile.t[5] := 0.0;
+                    #profile.t[6] := -#hh0 + #t / 2.0 + #aT / #jMax;
+
+                    #ok := "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                        pT := #pT, vT := #vT, aT := #aT, vMax := #vMax, aMax := #aMax);
+                    IF #ok THEN
+                        #dur := 0.0;
+                        FOR #i := 0 TO 6 DO
+                            #dur := #dur + #profile.t[#i];
+                        END_FOR;
+                        IF #dur < #bestDuration THEN
+                            #bestDuration := #dur;
+                            #found := true;
+                            FOR #i := 0 TO 6 DO
+                                #bestT[#i] := #profile.t[#i];
+                            END_FOR;
+                        END_IF;
+                    END_IF;
+                END_IF;
+            END_FOR;
+        END_REGION
+
+        REGION Candidate ACC0 (quartic, no plateau, +aMax only)
+            // Ruckig time_all_none_acc0_acc1 / ACC0 sub-case (positive accel limit
+            // reached). Monic quartic; each in-window real root Newton-refined once.
+            // paren-numerator / scalar mis-transpiles: precompute numerators.
+            #num_none := #a0_a0 - #af_af;
+            #h3_acc0  := #num_none / #den_2amaxj;
+            #num_none := #vT - #v0;
+            #h3_acc0  := #h3_acc0 + #num_none / #aMax;
+            #num_none := #aMax - #aT;
+            #tMinW    := #num_none / #jMax;
+            #num_none := #aMax - #aMin;
+            #tMaxW    := #num_none / #jMax;
+
+            #h0_acc0 := 3.0 * (#af_p4 - #a0_p4) + 8.0 * (#a0_p3 - #af_p3) * #aMax
+                + 24.0 * #aMax * #jMax * (#aT * #vT - #a0 * #v0)
+                - 6.0 * #a0_a0 * (#aMax * #aMax - 2.0 * #jMax * #v0)
+                + 6.0 * #af_af * (#aMax * #aMax - 2.0 * #jMax * #vT)
+                + 12.0 * #jMax * (#jMax * (#vf_vf - #v0_v0 - 2.0 * #aMax * #pd)
+                    - #aMax * #aMax * (#vT - #v0));
+            #h2_acc0 := -#af_af + #aMax * #aMax + 2.0 * #jMax * #vT;
+
+            #poly0 := -2.0 * #aMax / #jMax;
+            #poly1 := #h2_acc0 / #den_jj;
+            #poly2 := 0.0;
+            #poly3 := #h0_acc0 / #den_12jjjj;
+
+            "SolveQuartic"(a := 1.0, b := #poly0, c := #poly1, d := #poly2, e := #poly3,
+                roots => #roots, count => #rootCount);
+
+            FOR #k := 0 TO #rootCount - 1 DO
+                #t := #roots[#k];
+                IF #t >= #tMinW AND #t <= #tMaxW THEN
+                    IF #t > 2.220446049250313E-16 THEN
+                        #hh1 := #jMax * #t;
+                        #den_none := #den_12jj * #t;
+                        #orig := #h0_acc0 / #den_none + #t * (#h2_acc0 + #hh1 * (#hh1 - 2.0 * #aMax));
+                        #deriv := 2.0 * (#h2_acc0 + #hh1 * (2.0 * #hh1 - 3.0 * #aMax));
+                        #t := #t - #orig / #deriv;
+                    END_IF;
+
+                    #profile.t[0] := (-#a0 + #aMax) / #jMax;
+                    #profile.t[1] := #h3_acc0 - 2.0 * #t + #jMax / #aMax * #t * #t;
+                    #profile.t[2] := #t;
+                    #profile.t[3] := 0.0;
+                    #profile.t[4] := 0.0;
+                    #profile.t[5] := 0.0;
+                    #num_none := #aT - #aMax;
+                    #profile.t[6] := #num_none / #jMax + #t;
+
+                    #ok := "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                        pT := #pT, vT := #vT, aT := #aT, vMax := #vMax, aMax := #aMax);
+                    IF #ok THEN
+                        #dur := 0.0;
+                        FOR #i := 0 TO 6 DO
+                            #dur := #dur + #profile.t[#i];
+                        END_FOR;
+                        IF #dur < #bestDuration THEN
+                            #bestDuration := #dur;
+                            #found := true;
+                            FOR #i := 0 TO 6 DO
+                                #bestT[#i] := #profile.t[#i];
+                            END_FOR;
+                        END_IF;
+                    END_IF;
+                END_IF;
+            END_FOR;
+        END_REGION
+
+        REGION Candidate ACC1 (quartic, no plateau, -aMax only)
+            // Ruckig time_all_none_acc0_acc1 / ACC1 sub-case (negative accel limit
+            // reached). Monic quartic; each in-window real root refined by up to
+            // three Newton steps (first step clamped to t, like std::min(orig/deriv,t)).
+            // paren-numerator / scalar and / (product) mis-transpile: precompute.
+            #den_none := 2.0 * #jMax * #aMin;
+            #h3_acc1  := -(#a0_a0 + #af_af) / #den_none + #aMin / #jMax;
+            #num_none := #vT - #v0;
+            #h3_acc1  := #h3_acc1 + #num_none / #aMin;
+            #num_none := #aMin - #a0;
+            #tMinW    := #num_none / #jMax;
+            #num_none := #aMax - #a0;
+            #tMaxW    := #num_none / #jMax;
+
+            #num_none := #a0_p4 - #af_p4;
+            #h0_acc1  := #num_none / 4.0;
+            #num_none := #af_p3 - #a0_p3;
+            #h0_acc1  := #h0_acc1 + 2.0 * #num_none * #aMin / 3.0;
+            #num_none := #a0_a0 - #af_af;
+            #h0_acc1  := #h0_acc1 + #num_none * #aMin * #aMin / 2.0
+                + #jMax * (#af_af * #vT + #a0_a0 * #v0
+                    + 2.0 * #aMin * (#jMax * #pd - #a0 * #v0 - #aT * #vT)
+                    + #aMin * #aMin * (#v0 + #vT) + #jMax * (#v0_v0 - #vf_vf));
+            #h2_acc1 := #a0_a0 - #a0 * #aMin + 2.0 * #jMax * #v0;
+
+            #num_none := 2.0 * #a0 - #aMin;
+            #poly0    := 2.0 * #num_none / #jMax;
+            #num_none := 5.0 * #a0_a0 + #aMin * (#aMin - 6.0 * #a0) + 2.0 * #jMax * #v0;
+            #poly1    := #num_none / #den_jj;
+            #num_none := 2.0 * (#a0 - #aMin) * #h2_acc1;
+            #poly2    := #num_none / #den_jjj;
+            #poly3    := #h0_acc1 / #den_jjjj;
+
+            "SolveQuartic"(a := 1.0, b := #poly0, c := #poly1, d := #poly2, e := #poly3,
+                roots => #roots, count => #rootCount);
+
+            #h5 := #a0_p3 + 2.0 * #jMax * #a0 * #v0;
+
+            FOR #k := 0 TO #rootCount - 1 DO
+                #t := #roots[#k];
+                IF #t >= #tMinW AND #t <= #tMaxW THEN
+                    IF #t > 2.220446049250313E-16 THEN
+                        // step 1 (clamped to t, like std::min(orig/deriv, t))
+                        #hh1  := #jMax * #t;
+                        #orig := -(#h0_acc1 / 2.0 + #hh1 * (#h5
+                            + #a0 * (#aMin - 2.0 * #hh1) * (#aMin - #hh1)
+                            + #a0_a0 * (5.0 * #hh1 / 2.0 - 2.0 * #aMin)
+                            + #aMin * #aMin * #hh1 / 2.0
+                            + #jMax * (#hh1 / 2.0 - #aMin) * (#hh1 * #t + 2.0 * #v0))) / #jMax;
+                        #deriv := (#aMin - #a0 - #hh1) * (#h2_acc1 + #hh1 * (4.0 * #a0 - #aMin + 2.0 * #hh1));
+                        #step := #orig / #deriv;
+                        IF #step > #t THEN
+                            #step := #t;
+                        END_IF;
+                        #t := #t - #step;
+
+                        // step 2
+                        #hh1  := #jMax * #t;
+                        #orig := -(#h0_acc1 / 2.0 + #hh1 * (#h5
+                            + #a0 * (#aMin - 2.0 * #hh1) * (#aMin - #hh1)
+                            + #a0_a0 * (5.0 * #hh1 / 2.0 - 2.0 * #aMin)
+                            + #aMin * #aMin * #hh1 / 2.0
+                            + #jMax * (#hh1 / 2.0 - #aMin) * (#hh1 * #t + 2.0 * #v0))) / #jMax;
+                        IF ABS(#orig) > 1.0E-9 THEN
+                            #deriv := (#aMin - #a0 - #hh1) * (#h2_acc1 + #hh1 * (4.0 * #a0 - #aMin + 2.0 * #hh1));
+                            #t := #t - #orig / #deriv;
+
+                            // step 3
+                            #hh1  := #jMax * #t;
+                            #orig := -(#h0_acc1 / 2.0 + #hh1 * (#h5
+                                + #a0 * (#aMin - 2.0 * #hh1) * (#aMin - #hh1)
+                                + #a0_a0 * (5.0 * #hh1 / 2.0 - 2.0 * #aMin)
+                                + #aMin * #aMin * #hh1 / 2.0
+                                + #jMax * (#hh1 / 2.0 - #aMin) * (#hh1 * #t + 2.0 * #v0))) / #jMax;
+                            IF ABS(#orig) > 1.0E-9 THEN
+                                #deriv := (#aMin - #a0 - #hh1) * (#h2_acc1 + #hh1 * (4.0 * #a0 - #aMin + 2.0 * #hh1));
+                                #t := #t - #orig / #deriv;
+                            END_IF;
+                        END_IF;
+                    END_IF;
+
+                    #profile.t[0] := #t;
+                    #profile.t[1] := 0.0;
+                    #num_none := #a0 - #aMin;
+                    #profile.t[2] := #num_none / #jMax + #t;
+                    #profile.t[3] := 0.0;
+                    #profile.t[4] := 0.0;
+                    #profile.t[5] := #h3_acc1 - (2.0 * #a0 + #jMax * #t) * #t / #aMin;
+                    #num_none := #aT - #aMin;
+                    #profile.t[6] := #num_none / #jMax;
+
+                    #ok := "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                        pT := #pT, vT := #vT, aT := #aT, vMax := #vMax, aMax := #aMax);
+                    IF #ok THEN
+                        #dur := 0.0;
+                        FOR #i := 0 TO 6 DO
+                            #dur := #dur + #profile.t[#i];
+                        END_FOR;
+                        IF #dur < #bestDuration THEN
+                            #bestDuration := #dur;
+                            #found := true;
+                            FOR #i := 0 TO 6 DO
+                                #bestT[#i] := #profile.t[#i];
+                            END_FOR;
+                        END_IF;
+                    END_IF;
+                END_IF;
+            END_FOR;
         END_REGION
 
         REGION Finalise winner or fail

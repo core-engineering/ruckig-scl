@@ -113,3 +113,66 @@ def test_acc0_acc1_nonzero_a0_and_aT(harness):
     _check_matches_oracle(harness, args)
     _, _, prof = _run(harness, *args)
     assert prof.t[3] == pytest.approx(0.0, abs=1e-12)
+
+
+# --- time_all_none_acc0_acc1 family: quartic, no vel plateau, <=1 accel limit ---
+# Ruckig's most numerically delicate family ("this one is in particular prone to
+# numerical issues"). Each sub-case is a monic quartic whose real roots (refined
+# by Newton) become candidate phase-3 times. The NONE sub-case (no velocity
+# plateau, neither acceleration limit reached: only the three jerk phases
+# t[0],t[2],t[6] are non-zero) is the one the oracle selects as time-optimal.
+# All cases below were verified oracle-valid AND reproduced by the SCL solver at
+# the floating-point floor (duration error < 1e-6, t[1]=t[3]=t[5]=0).
+
+
+def test_none_rest_to_rest(harness):
+    # NONE sub-case, rest-to-rest. oracle duration ~= 1.169607095285147
+    args = (0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 10.0, 3.0, 10.0)
+    _check_matches_oracle(harness, args)
+    _, _, prof = _run(harness, *args)
+    assert prof.t[1] == pytest.approx(0.0, abs=1e-12)
+    assert prof.t[3] == pytest.approx(0.0, abs=1e-12)
+    assert prof.t[5] == pytest.approx(0.0, abs=1e-12)
+
+
+def test_none_asymmetric_a(harness):
+    # NONE with asymmetric nonzero v0/a0/vT/aT. oracle duration ~= 1.141664228710
+    args = (0.0, -0.22179, 1.47189, 0.51667, 0.30549, 1.12091, 8.0, 4.0, 10.0)
+    _check_matches_oracle(harness, args)
+    _, _, prof = _run(harness, *args)
+    assert prof.t[1] == pytest.approx(0.0, abs=1e-12)
+    assert prof.t[3] == pytest.approx(0.0, abs=1e-12)
+    assert prof.t[5] == pytest.approx(0.0, abs=1e-12)
+
+
+def test_none_asymmetric_b(harness):
+    # NONE, opposite-sign target acceleration (aT<0), high jerk.
+    # oracle duration ~= 0.562531013815
+    args = (0.0, 1.26092, 1.9389, 0.80212, 0.93598, -2.37124, 8.0, 4.0, 15.0)
+    _check_matches_oracle(harness, args)
+    _, _, prof = _run(harness, *args)
+    assert prof.t[1] == pytest.approx(0.0, abs=1e-12)
+    assert prof.t[3] == pytest.approx(0.0, abs=1e-12)
+    assert prof.t[5] == pytest.approx(0.0, abs=1e-12)
+
+
+# NOTE: a fourth NONE case (e.g. v0=-0.86103, a0=-2.56798, pT=-0.46958,
+# vT=-0.44794, aT=0.48106, vMax=8, aMax=5, jMax=10 -> oracle 1.828037995792)
+# was verified solvable in isolation but is omitted: the plc-code test harness
+# degrades once a single test module instantiates a 12th make_harness fixture
+# (8/9/10/11 fixtures pass cleanly; the 12th makes earlier executions return
+# stale/NaN state). Three NONE cases (11 total in this module) stay safely
+# below that harness cliff while covering rest-to-rest plus two asymmetric
+# nonzero-a0/aT geometries.
+
+# NOTE: the ACC0 and ACC1 sub-cases of time_all_none_acc0_acc1 (a single
+# acceleration plateau, t[1]>0 XOR t[5]>0, no vel plateau) could NOT be
+# provoked as the *time-optimal* solution from the official ruckig oracle.
+# In sweeps of thousands of oracle-valid, no-vel-plateau configs that the SCL
+# solver reproduces at the FP floor, the accepted optimum is always the NONE
+# sub-case, the VEL family, or the full ACC0_ACC1 family; none reached a single
+# acceleration limit as the optimum. The ACC0/ACC1 regions are still ported
+# faithfully and evaluated on every call -- their quartics are solved, roots
+# Newton-refined and run through CheckProfile, which together with min-duration
+# bookkeeping correctly leaves them unselected whenever a shorter feasible
+# profile exists.
