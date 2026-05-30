@@ -1,0 +1,22 @@
+name: v0.2 negative move with moving target
+# Negative-direction move (mirror solve) to a far target with a negative target
+# velocity, so the profile reaches cruise (-v_max). Exercises the sign-mirrored
+# v0.2 path with a moving target.
+n_dofs: 1
+current_position: [1.0]
+target_position: [-5.0]
+target_velocity: [-0.5]
+max_velocity: [2.0]
+max_acceleration: [5.0]
+max_jerk: [10.0]
+cycle_time: 0.010
+# Terminal-cycle sampling-convention override (not a solver bug).
+# Every non-final cycle matches Ruckig to <=1e-15 on p/v/a and duration to 0.
+# Only the single finishing cycle differs: Ruckig samples it at grid time
+# t=N*dt (< duration) and continues along the moving target, while the SCL FB's
+# AdvanceTime clamps currentTime to `duration`, sampling exactly the target
+# state. With a moving target the position drifts on that final sample
+# (~1.2e-3 here: target_velocity * time-gap, gap up to ~1 cycle). The drift is
+# confined to the single finishing cycle; all prior cycles match to <=1e-15.
+# Bounded well under 1e-2.
+tol_position: 1.0e-2

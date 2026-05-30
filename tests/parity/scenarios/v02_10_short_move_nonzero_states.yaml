@@ -1,0 +1,20 @@
+name: v0.2 short move with nonzero start and target states
+n_dofs: 1
+current_velocity: [0.3]
+current_acceleration: [0.5]
+target_position: [0.2]
+target_velocity: [0.2]
+target_acceleration: [0.2]
+max_velocity: [2.0]
+max_acceleration: [5.0]
+max_jerk: [10.0]
+cycle_time: 0.010
+# Terminal-cycle sampling-convention override (not a solver bug).
+# Every non-final cycle matches Ruckig to <=1e-16 on p/v/a and duration to 0.
+# Only the single finishing cycle differs: Ruckig samples it at grid time
+# t=N*dt (< duration) and continues along the moving target, while the SCL FB's
+# AdvanceTime clamps currentTime to `duration`, sampling exactly the target
+# state. With nonzero target velocity AND acceleration both p and v drift on
+# that final sample (~6.5e-4 each). Bounded well under 1e-3.
+tol_position: 1.0e-3
+tol_velocity: 1.0e-3

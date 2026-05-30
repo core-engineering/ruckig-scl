@@ -1,0 +1,18 @@
+name: v0.2 nonzero target acceleration
+n_dofs: 1
+target_position: [1.0]
+target_velocity: [0.5]
+target_acceleration: [0.5]
+max_velocity: [2.0]
+max_acceleration: [5.0]
+max_jerk: [10.0]
+cycle_time: 0.010
+# Terminal-cycle sampling-convention override (not a solver bug).
+# Every non-final cycle matches Ruckig to <=1e-15 on p/v/a and duration to 0.
+# Only the single finishing cycle differs: Ruckig samples it at grid time
+# t=N*dt (< duration) and continues along the moving target, while the SCL FB's
+# AdvanceTime clamps currentTime to `duration`, sampling exactly the target
+# state. With a nonzero target velocity AND acceleration both p and v drift on
+# that final sample (~1.8e-4 each). Bounded well under 1e-3.
+tol_position: 1.0e-3
+tol_velocity: 1.0e-3
