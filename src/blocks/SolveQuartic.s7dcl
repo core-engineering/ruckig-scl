@@ -1,0 +1,182 @@
+{
+    S7_Author := "Martin C";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.2.0"
+}
+FUNCTION "SolveQuartic" : Void
+    VAR_INPUT
+        a : LReal;
+        b : LReal;
+        c : LReal;
+        d : LReal;
+        e : LReal;
+    END_VAR
+    VAR_OUTPUT
+        roots : Array[0..3] of LReal;
+        count : Int;
+    END_VAR
+    VAR_TEMP
+        bb         : LReal;
+        cc         : LReal;
+        dd         : LReal;
+        ee         : LReal;
+        p          : LReal;
+        q          : LReal;
+        r          : LReal;
+        shift      : LReal;
+        disc       : LReal;
+        sq         : LReal;
+        t1         : LReal;
+        t2         : LReal;
+        cubicRoots : Array[0..3] of LReal;
+        cubicCount : Int;
+        z          : LReal;
+        w          : LReal;
+        s          : LReal;
+        b1         : LReal;
+        c1         : LReal;
+        n          : Int;
+        i          : Int;
+        y          : LReal;
+    END_VAR
+    VAR CONSTANT
+        EPS : LReal := 1.0E-12;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      SolveQuartic
+            // Function:   Real roots of a*x^4 + b*x^3 + c*x^2 + d*x + e = 0
+            //             via Ferrari's method using the resolvent cubic
+            //             (delegates to SolveCubic). Outputs real roots only.
+            // Family:     Ruckig
+            // Author:     Martin C
+            //==========================================================
+        END_REGION
+
+        REGION Degenerate to cubic
+            IF ABS(#a) < #EPS THEN
+                "SolveCubic"(a := #b, b := #c, c := #d, d := #e, roots => #cubicRoots, count => #cubicCount);
+                FOR #i := 0 TO 3 DO
+                    #roots[#i] := #cubicRoots[#i];
+                END_FOR;
+                #count := #cubicCount;
+                RETURN;
+            END_IF;
+        END_REGION
+
+        REGION Normalize and depress
+            #bb := #b / #a;
+            #cc := #c / #a;
+            #dd := #d / #a;
+            #ee := #e / #a;
+            #shift := #bb / 4.0;
+            #p := #cc - 3.0 * #bb * #bb / 8.0;
+            #q := #dd - #bb * #cc / 2.0 + #bb * #bb * #bb / 8.0;
+            #r := #ee - #bb * #dd / 4.0 + #bb * #bb * #cc / 16.0 - 3.0 * #bb * #bb * #bb * #bb / 256.0;
+            #n := 0;
+        END_REGION
+
+        REGION Biquadratic case
+            IF ABS(#q) < #EPS THEN
+                #disc := #p * #p - 4.0 * #r;
+                IF #disc < -#EPS THEN
+                    #count := 0;
+                    RETURN;
+                END_IF;
+                IF #disc < 0.0 THEN
+                    #disc := 0.0;
+                END_IF;
+                #sq := SQRT(#disc);
+                #t1 := (-#p + #sq) / 2.0;
+                #t2 := (-#p - #sq) / 2.0;
+                // t1
+                IF #t1 > #EPS THEN
+                    #roots[#n] := SQRT(#t1) - #shift;
+                    #n := #n + 1;
+                    #roots[#n] := -SQRT(#t1) - #shift;
+                    #n := #n + 1;
+                ELSIF ABS(#t1) <= #EPS THEN
+                    #roots[#n] := -#shift;
+                    #n := #n + 1;
+                END_IF;
+                // t2
+                IF #t2 > #EPS THEN
+                    #roots[#n] := SQRT(#t2) - #shift;
+                    #n := #n + 1;
+                    #roots[#n] := -SQRT(#t2) - #shift;
+                    #n := #n + 1;
+                ELSIF ABS(#t2) <= #EPS THEN
+                    #roots[#n] := -#shift;
+                    #n := #n + 1;
+                END_IF;
+                #count := #n;
+                RETURN;
+            END_IF;
+        END_REGION
+
+        REGION General case via resolvent cubic
+            // 8 z^3 + 8 p z^2 + (2 p^2 - 8 r) z - q^2 = 0
+            "SolveCubic"(a := 8.0, b := 8.0 * #p, c := 2.0 * #p * #p - 8.0 * #r, d := -#q * #q, roots => #cubicRoots, count => #cubicCount);
+            IF #cubicCount = 0 THEN
+                #count := 0;
+                RETURN;
+            END_IF;
+            // pick the largest real root to maximize 2z
+            #z := #cubicRoots[0];
+            FOR #i := 1 TO #cubicCount - 1 DO
+                IF #cubicRoots[#i] > #z THEN
+                    #z := #cubicRoots[#i];
+                END_IF;
+            END_FOR;
+
+            IF 2.0 * #z <= #EPS THEN
+                #count := 0;
+                RETURN;
+            END_IF;
+
+            #w := SQRT(2.0 * #z);
+            #s := #q / (2.0 * #w);
+
+            // Q1: y^2 - w y + (p/2 + z + s) = 0
+            #b1 := -#w;
+            #c1 := #p / 2.0 + #z + #s;
+            #disc := #b1 * #b1 - 4.0 * #c1;
+            IF #disc >= -#EPS THEN
+                IF #disc < 0.0 THEN
+                    #disc := 0.0;
+                END_IF;
+                #sq := SQRT(#disc);
+                #y := (-#b1 + #sq) / 2.0;
+                #roots[#n] := #y - #shift;
+                #n := #n + 1;
+                #y := (-#b1 - #sq) / 2.0;
+                #roots[#n] := #y - #shift;
+                #n := #n + 1;
+            END_IF;
+
+            // Q2: y^2 + w y + (p/2 + z - s) = 0
+            #b1 := #w;
+            #c1 := #p / 2.0 + #z - #s;
+            #disc := #b1 * #b1 - 4.0 * #c1;
+            IF #disc >= -#EPS THEN
+                IF #disc < 0.0 THEN
+                    #disc := 0.0;
+                END_IF;
+                #sq := SQRT(#disc);
+                #y := (-#b1 + #sq) / 2.0;
+                #roots[#n] := #y - #shift;
+                #n := #n + 1;
+                #y := (-#b1 - #sq) / 2.0;
+                #roots[#n] := #y - #shift;
+                #n := #n + 1;
+            END_IF;
+
+            #count := #n;
+        END_REGION
+    END_NETWORK
+END_FUNCTION
