@@ -47,6 +47,19 @@ FUNCTION "ComputeProfile1Axis" : Word
         bestDuration : LReal;
         found        : Bool;
         bestT        : Array[0..6] of LReal;
+        // ACC0_ACC1 (no vel plateau) scratch
+        h1          : LReal;
+        h2          : LReal;
+        h3          : LReal;
+        h1OverAmax  : LReal;
+        h1OverAmin  : LReal;
+        num1        : LReal;
+        num2        : LReal;
+        denAmaxAmin : LReal;
+        denH1       : LReal;
+        den2J       : LReal;
+        den2aMaxJ   : LReal;
+        den2aMinJ   : LReal;
     END_VAR
 
     { S7_Language := "SCL" }
@@ -242,6 +255,87 @@ FUNCTION "ComputeProfile1Axis" : Word
                         FOR #i := 0 TO 6 DO
                             #bestT[#i] := #profile.t[#i];
                         END_FOR;
+                    END_IF;
+                END_IF;
+            END_IF;
+        END_REGION
+
+        REGION Candidate ACC0_ACC1 (no vel plateau)
+            // Both accel limits reached, no velocity plateau (t[3]=0); two UDDU
+            // candidate solutions. Precompute every parenthesized denominator
+            // into a scalar temp (transpiler quirk: never divide by (a*b)).
+            #denAmaxAmin := #aMax - #aMin;
+            #denH1       := 3.0 * #denAmaxAmin * #jMax_jMax;
+            #den2J       := 2.0 * #jMax;
+            #den2aMaxJ   := 2.0 * #aMax * #jMax;
+            #den2aMinJ   := 2.0 * #aMin * #jMax;
+            // first term numerator of h1's radicand
+            #num1 := 3.0 * (#af_p4 * #aMax - #a0_p4 * #aMin)
+                + #aMax * #aMin * (8.0 * (#a0_p3 - #af_p3) + 3.0 * #aMax * #aMin * (#aMax - #aMin)
+                + 6.0 * #aMin * #af_af - 6.0 * #aMax * #a0_a0)
+                + 12.0 * #jMax * (#aMax * #aMin * ((#aMax - 2.0 * #a0) * #v0 - (#aMin - 2.0 * #aT) * #vT)
+                + #aMin * #a0_a0 * #v0 - #aMax * #af_af * #vT);
+            // second term numerator: 4*(aMax*vf_vf - aMin*v0_v0 - 2*aMin*aMax*pd)
+            #num2 := 4.0 * (#aMax * #vf_vf - #aMin * #v0_v0 - 2.0 * #aMin * #aMax * #pd);
+            #h1 := #num1 / #denH1 + #num2 / #denAmaxAmin;
+            IF #h1 >= 0.0 THEN
+                #h1 := SQRT(#h1) / 2.0;
+                #h2 := #a0_a0 / #den2aMaxJ + (#aMin - 2.0 * #aMax) / #den2J - #v0 / #aMax;
+                #h3 := -#af_af / #den2aMinJ - (#aMax - 2.0 * #aMin) / #den2J + #vT / #aMin;
+                #h1OverAmax := #h1 / #aMax;
+                #h1OverAmin := #h1 / #aMin;
+
+                // UDDU: Solution 2
+                IF #h2 > #h1OverAmax AND #h3 > -#h1OverAmin THEN
+                    #profile.t[0] := (-#a0 + #aMax) / #jMax;
+                    #profile.t[1] := #h2 - #h1OverAmax;
+                    #profile.t[2] := #aMax / #jMax;
+                    #profile.t[3] := 0.0;
+                    #profile.t[4] := -#aMin / #jMax;
+                    #profile.t[5] := #h3 + #h1OverAmin;
+                    #profile.t[6] := #profile.t[4] + #aT / #jMax;
+
+                    #ok := "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                        pT := #pT, vT := #vT, aT := #aT, vMax := #vMax, aMax := #aMax);
+                    IF #ok THEN
+                        #dur := 0.0;
+                        FOR #i := 0 TO 6 DO
+                            #dur := #dur + #profile.t[#i];
+                        END_FOR;
+                        IF #dur < #bestDuration THEN
+                            #bestDuration := #dur;
+                            #found := true;
+                            FOR #i := 0 TO 6 DO
+                                #bestT[#i] := #profile.t[#i];
+                            END_FOR;
+                        END_IF;
+                    END_IF;
+                END_IF;
+
+                // UDDU: Solution 1
+                IF #h2 > -#h1OverAmax AND #h3 > #h1OverAmin THEN
+                    #profile.t[0] := (-#a0 + #aMax) / #jMax;
+                    #profile.t[1] := #h2 + #h1OverAmax;
+                    #profile.t[2] := #aMax / #jMax;
+                    #profile.t[3] := 0.0;
+                    #profile.t[4] := -#aMin / #jMax;
+                    #profile.t[5] := #h3 - #h1OverAmin;
+                    #profile.t[6] := #profile.t[4] + #aT / #jMax;
+
+                    #ok := "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                        pT := #pT, vT := #vT, aT := #aT, vMax := #vMax, aMax := #aMax);
+                    IF #ok THEN
+                        #dur := 0.0;
+                        FOR #i := 0 TO 6 DO
+                            #dur := #dur + #profile.t[#i];
+                        END_FOR;
+                        IF #dur < #bestDuration THEN
+                            #bestDuration := #dur;
+                            #found := true;
+                            FOR #i := 0 TO 6 DO
+                                #bestT[#i] := #profile.t[#i];
+                            END_FOR;
+                        END_IF;
                     END_IF;
                 END_IF;
             END_IF;
