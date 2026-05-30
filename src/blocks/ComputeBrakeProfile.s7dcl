@@ -1,0 +1,278 @@
+{
+    S7_Author := "Martin C";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.2.0"
+}
+FUNCTION "ComputeBrakeProfile" : LReal
+    VAR_IN_OUT
+        profile : _.typeProfile;
+    END_VAR
+    VAR_INPUT
+        v0   : LReal;
+        a0   : LReal;
+        vMax : LReal;
+        aMax : LReal;
+        jMax : LReal;
+    END_VAR
+    VAR_OUTPUT
+        pBrake : LReal;
+        vBrake : LReal;
+        aBrake : LReal;
+    END_VAR
+    VAR_TEMP
+        // symmetric limit mirrors
+        vMin : LReal;
+        aMin : LReal;
+        // dispatch: 0 = no brake, 1 = acceleration_brake, 2 = velocity_brake
+        mode : DInt;
+        // signed helper arguments (mirror Ruckig's argument passing; for the
+        // a0<aMin / v0<vMin branches the limits AND jerk sign are flipped)
+        sv0   : LReal;
+        sa0   : LReal;
+        svMax : LReal;
+        svMin : LReal;
+        saMax : LReal;
+        saMin : LReal;
+        sjMax : LReal;
+        // acceleration_brake scratch
+        t_to_a_max  : LReal;
+        v_at_a_max  : LReal;
+        v_at_a_zero : LReal;
+        t_to_v_min  : LReal;
+        t_to_v_max  : LReal;
+        // velocity_brake scratch
+        t_to_a_min               : LReal;
+        t_min_to_v_max           : LReal;
+        v_at_a_min               : LReal;
+        t_to_v_max_with_constant : LReal;
+        t_to_v_min_with_constant : LReal;
+        disc                     : LReal;
+        // precomputed denominators (transpiler quirk: no /(a*b) inline)
+        twoJ   : LReal;
+        // generic min/max scratch
+        cand   : LReal;
+        // v_at_a_zero checks in the dispatch
+        vz_negj : LReal;
+        vz_posj : LReal;
+        // integration
+        i  : DInt;
+        dt : LReal;
+        // common eps
+        eps : LReal;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      ComputeBrakeProfile
+            // Function:   Third-order POSITION brake pre-profile. v0.2 port of
+            //             Ruckig brake.cpp get_position_brake_trajectory plus
+            //             helpers acceleration_brake / velocity_brake (and the
+            //             inline v_at_t / v_at_a_zero). When the initial state
+            //             (v0,a0) is OUT of limits (|a0|>aMax or |v0|>vMax) a
+            //             <=2 segment brake is prepended: seg0 ramps accel with
+            //             j[0]=-/+jMax, seg1 holds constant accel (j[1]=0). The
+            //             brake drives the state back inside the limits so the
+            //             main profile starts feasible.
+            // Limits:     symmetric -> vMin=-vMax, aMin=-aMax (set internally).
+            // Returns:    brake duration = brake.t[0] + brake.t[1].
+            // Seeding:    the brake is RELATIVE in position. We seed
+            //             brake.p[0]=0.0, brake.v[0]=v0, brake.a[0]=a0 and
+            //             integrate BOTH segments (a zero-duration segment is a
+            //             no-op) via the same cubic recurrence as
+            //             IntegrateProfileStates. Outputs:
+            //               pBrake = brake.p[2] (position ADVANCE, relative)
+            //               vBrake = brake.v[2] (absolute post-brake velocity)
+            //               aBrake = brake.a[2] (absolute post-brake accel)
+            //             The official ruckig binding confirms brake.p[0]==0.0
+            //             (BrakeProfile.p relative), validating this choice.
+            // Note:       MIN/MAX builtins are not used anywhere in this code
+            //             base; max(min(x,y),0) is done with explicit IF logic.
+            // Family:     Ruckig
+            // Author:     Martin C
+            // Ref:        ruckig/src/ruckig/brake.cpp
+            //==========================================================
+        END_REGION
+
+        REGION Init outputs and mirrors
+            #eps  := 2.2E-14;
+            #vMin := -#vMax;
+            #aMin := -#aMax;
+            // clear the brake (matches _empty_profile / Ruckig defaults)
+            #profile.brake.t[0] := 0.0;
+            #profile.brake.t[1] := 0.0;
+            #profile.brake.j[0] := 0.0;
+            #profile.brake.j[1] := 0.0;
+            #mode := 0;
+        END_REGION
+
+        REGION Dispatch (get_position_brake_trajectory)
+            // zero-limits guard: no brake possible
+            IF #jMax = 0.0 OR #aMax = 0.0 THEN
+                #mode := 0;
+            ELSIF #a0 > #aMax THEN
+                // acceleration_brake(v0,a0, vMax,vMin, aMax,aMin, jMax)
+                #mode  := 1;
+                #sv0   := #v0;
+                #sa0   := #a0;
+                #svMax := #vMax;
+                #svMin := #vMin;
+                #saMax := #aMax;
+                #saMin := #aMin;
+                #sjMax := #jMax;
+            ELSIF #a0 < #aMin THEN
+                // acceleration_brake(v0,a0, vMin,vMax, aMin,aMax, -jMax)  MIRRORED
+                #mode  := 1;
+                #sv0   := #v0;
+                #sa0   := #a0;
+                #svMax := #vMin;
+                #svMin := #vMax;
+                #saMax := #aMin;
+                #saMin := #aMax;
+                #sjMax := -#jMax;
+            ELSE
+                // v_at_a_zero(v0,a0, j) = v0 + a0*a0/(2*j)
+                #twoJ    := 2.0 * #jMax;
+                #vz_posj := #v0 + #a0 * #a0 / #twoJ;
+                #twoJ    := -2.0 * #jMax;
+                #vz_negj := #v0 + #a0 * #a0 / #twoJ;
+                IF (#v0 > #vMax AND #vz_negj > #vMin) OR (#a0 > 0.0 AND #vz_posj > #vMax) THEN
+                    // velocity_brake(v0,a0, vMax,vMin, aMax,aMin, jMax)
+                    #mode  := 2;
+                    #sv0   := #v0;
+                    #sa0   := #a0;
+                    #svMax := #vMax;
+                    #svMin := #vMin;
+                    #saMax := #aMax;
+                    #saMin := #aMin;
+                    #sjMax := #jMax;
+                ELSIF (#v0 < #vMin AND #vz_posj < #vMax) OR (#a0 < 0.0 AND #vz_negj < #vMin) THEN
+                    // velocity_brake(v0,a0, vMin,vMax, aMin,aMax, -jMax)  MIRRORED
+                    #mode  := 2;
+                    #sv0   := #v0;
+                    #sa0   := #a0;
+                    #svMax := #vMin;
+                    #svMin := #vMax;
+                    #saMax := #aMin;
+                    #saMin := #aMax;
+                    #sjMax := -#jMax;
+                ELSE
+                    #mode := 0;
+                END_IF;
+            END_IF;
+        END_REGION
+
+        REGION acceleration_brake
+            IF #mode = 1 THEN
+                #profile.brake.j[0] := -#sjMax;
+                // t_to_a_max = (a0 - aMax)/jMax ; t_to_a_zero = a0/jMax
+                #t_to_a_max := (#sa0 - #saMax) / #sjMax;
+                // v_at_t(v0,a0,-jMax,t) = v0 + t*(a0 + (-jMax)*t/2)
+                #v_at_a_max := #sv0 + #t_to_a_max * (#sa0 - #sjMax * #t_to_a_max / 2.0);
+                // v_at_t at t_to_a_zero (= a0/jMax)
+                #v_at_a_zero := #sv0 + (#sa0 / #sjMax) * (#sa0 - #sjMax * (#sa0 / #sjMax) / 2.0);
+                IF (#v_at_a_zero > #svMax AND #sjMax > 0.0) OR (#v_at_a_zero < #svMax AND #sjMax < 0.0) THEN
+                    // overshoots velocity first -> fall back to velocity_brake
+                    #mode := 2;
+                ELSIF (#v_at_a_max < #svMin AND #sjMax > 0.0) OR (#v_at_a_max > #svMin AND #sjMax < 0.0) THEN
+                    // t_to_v_min = -(v_at_a_max - vMin)/aMax
+                    #t_to_v_min := -(#v_at_a_max - #svMin) / #saMax;
+                    // t_to_v_max = -aMax/(2*jMax) - (v_at_a_max - vMax)/aMax
+                    #twoJ       := 2.0 * #sjMax;
+                    #t_to_v_max := -#saMax / #twoJ - (#v_at_a_max - #svMax) / #saMax;
+                    #profile.brake.t[0] := #t_to_a_max + #eps;
+                    // t[1] = max(min(t_to_v_min, t_to_v_max - eps), 0.0)
+                    #cand := #t_to_v_max - #eps;
+                    IF #t_to_v_min < #cand THEN
+                        #cand := #t_to_v_min;
+                    END_IF;
+                    IF #cand < 0.0 THEN
+                        #cand := 0.0;
+                    END_IF;
+                    #profile.brake.t[1] := #cand;
+                ELSE
+                    #profile.brake.t[0] := #t_to_a_max + #eps;
+                END_IF;
+            END_IF;
+        END_REGION
+
+        REGION velocity_brake
+            // mode may have been promoted from 1 -> 2 inside acceleration_brake
+            IF #mode = 2 THEN
+                #profile.brake.j[0] := -#sjMax;
+                // t_to_a_min = (a0 - aMin)/jMax
+                #t_to_a_min := (#sa0 - #saMin) / #sjMax;
+                // t_to_v_max = a0/jMax + sqrt(a0^2 + 2*jMax*(v0 - vMax))/abs(jMax)
+                #disc       := #sa0 * #sa0 + 2.0 * #sjMax * (#sv0 - #svMax);
+                IF #disc < 0.0 THEN
+                    #disc := 0.0;
+                END_IF;
+                #t_to_v_max := #sa0 / #sjMax + SQRT(#disc) / ABS(#sjMax);
+                // t_to_v_min = a0/jMax + sqrt(a0^2/2 + jMax*(v0 - vMin))/abs(jMax)
+                #disc       := #sa0 * #sa0 / 2.0 + #sjMax * (#sv0 - #svMin);
+                IF #disc < 0.0 THEN
+                    #disc := 0.0;
+                END_IF;
+                #t_to_v_min := #sa0 / #sjMax + SQRT(#disc) / ABS(#sjMax);
+                // t_min_to_v_max = min(t_to_v_max, t_to_v_min)
+                #t_min_to_v_max := #t_to_v_max;
+                IF #t_to_v_min < #t_min_to_v_max THEN
+                    #t_min_to_v_max := #t_to_v_min;
+                END_IF;
+                IF #t_to_a_min < #t_min_to_v_max THEN
+                    // v_at_a_min = v_at_t(v0,a0,-jMax,t_to_a_min)
+                    #v_at_a_min := #sv0 + #t_to_a_min * (#sa0 - #sjMax * #t_to_a_min / 2.0);
+                    // t_to_v_max_with_constant = -(v_at_a_min - vMax)/aMin
+                    #t_to_v_max_with_constant := -(#v_at_a_min - #svMax) / #saMin;
+                    // t_to_v_min_with_constant = aMin/(2*jMax) - (v_at_a_min - vMin)/aMin
+                    #twoJ                     := 2.0 * #sjMax;
+                    #t_to_v_min_with_constant := #saMin / #twoJ - (#v_at_a_min - #svMin) / #saMin;
+                    // t[0] = max(t_to_a_min - eps, 0.0)
+                    #cand := #t_to_a_min - #eps;
+                    IF #cand < 0.0 THEN
+                        #cand := 0.0;
+                    END_IF;
+                    #profile.brake.t[0] := #cand;
+                    // t[1] = max(min(t_to_v_max_with_constant, t_to_v_min_with_constant), 0.0)
+                    #cand := #t_to_v_max_with_constant;
+                    IF #t_to_v_min_with_constant < #cand THEN
+                        #cand := #t_to_v_min_with_constant;
+                    END_IF;
+                    IF #cand < 0.0 THEN
+                        #cand := 0.0;
+                    END_IF;
+                    #profile.brake.t[1] := #cand;
+                ELSE
+                    // t[0] = max(t_min_to_v_max - eps, 0.0)
+                    #cand := #t_min_to_v_max - #eps;
+                    IF #cand < 0.0 THEN
+                        #cand := 0.0;
+                    END_IF;
+                    #profile.brake.t[0] := #cand;
+                END_IF;
+            END_IF;
+        END_REGION
+
+        REGION Integrate brake segments (relative; seed p0=0,v0,a0)
+            #profile.brake.a[0] := #a0;
+            #profile.brake.v[0] := #v0;
+            #profile.brake.p[0] := 0.0;
+            FOR #i := 0 TO 1 DO
+                #dt := #profile.brake.t[#i];
+                #profile.brake.p[#i + 1] := #profile.brake.p[#i] + #profile.brake.v[#i] * #dt + 0.5 * #profile.brake.a[#i] * #dt * #dt + #profile.brake.j[#i] * #dt * #dt * #dt / 6.0;
+                #profile.brake.v[#i + 1] := #profile.brake.v[#i] + #profile.brake.a[#i] * #dt + 0.5 * #profile.brake.j[#i] * #dt * #dt;
+                #profile.brake.a[#i + 1] := #profile.brake.a[#i] + #profile.brake.j[#i] * #dt;
+            END_FOR;
+        END_REGION
+
+        REGION Outputs
+            #pBrake := #profile.brake.p[2];
+            #vBrake := #profile.brake.v[2];
+            #aBrake := #profile.brake.a[2];
+            #ComputeBrakeProfile := #profile.brake.t[0] + #profile.brake.t[1];
+        END_REGION
+    END_NETWORK
+END_FUNCTION
