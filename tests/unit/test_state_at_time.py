@@ -8,8 +8,8 @@ def harness(make_harness):
 
 
 def trapezoidal_profile(p0=0.0, p1=10.0, vmax=2.0, amax=2.0, jmax=10.0) -> dict:
-    """Pre-computed 7-phase trapezoidal profile (case A) — matches the case
-    used in ComputeFinalProfile tests."""
+    """Pre-computed 7-phase trapezoidal profile (case A) — the v0.1 rest-to-rest
+    trapezoid the solver reproduces."""
     tj, ta = 0.2, 0.8
     s_to_vmax = vmax * (2.0 * tj + ta)
     tv = (p1 - p0 - s_to_vmax) / vmax

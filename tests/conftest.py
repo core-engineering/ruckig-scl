@@ -10,7 +10,7 @@ Use the ``make_harness`` fixture (a factory) to build a harness for a block:
 
     @pytest.fixture
     def harness(make_harness):
-        return make_harness("ComputeMinDuration.s7dcl")
+        return make_harness("ComputeProfile1Axis.s7dcl")
 """
 from pathlib import Path
 
