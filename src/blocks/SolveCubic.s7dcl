@@ -30,6 +30,7 @@ FUNCTION "SolveCubic" : Void
         m     : LReal;
         theta : LReal;
         qdisc : LReal;
+        arg   : LReal;
         i     : DInt;
     END_VAR
     VAR CONSTANT
@@ -80,13 +81,21 @@ FUNCTION "SolveCubic" : Void
             #disc := #q * #q / 4.0 + #p * #p * #p / 27.0;
             IF #disc > #EPS THEN
                 #sq := SQRT(#disc);
-                #u := EXP(LN(ABS(-#q / 2.0 + #sq)) / 3.0);
-                IF (-#q / 2.0 + #sq) < 0.0 THEN
-                    #u := -#u;
+                IF ABS(-#q / 2.0 + #sq) < #EPS THEN
+                    #u := 0.0;
+                ELSE
+                    #u := EXP(LN(ABS(-#q / 2.0 + #sq)) / 3.0);
+                    IF (-#q / 2.0 + #sq) < 0.0 THEN
+                        #u := -#u;
+                    END_IF;
                 END_IF;
-                #v := EXP(LN(ABS(-#q / 2.0 - #sq)) / 3.0);
-                IF (-#q / 2.0 - #sq) < 0.0 THEN
-                    #v := -#v;
+                IF ABS(-#q / 2.0 - #sq) < #EPS THEN
+                    #v := 0.0;
+                ELSE
+                    #v := EXP(LN(ABS(-#q / 2.0 - #sq)) / 3.0);
+                    IF (-#q / 2.0 - #sq) < 0.0 THEN
+                        #v := -#v;
+                    END_IF;
                 END_IF;
                 #roots[0] := #u + #v - #shift;
                 #count := 1;
@@ -105,7 +114,14 @@ FUNCTION "SolveCubic" : Void
                 END_IF;
             ELSE
                 #m := 2.0 * SQRT(-#p / 3.0);
-                #theta := ACOS(3.0 * #q / (#p * #m)) / 3.0;
+                #arg := 3.0 * #q / (#p * #m);
+                IF #arg > 1.0 THEN
+                    #arg := 1.0;
+                END_IF;
+                IF #arg < -1.0 THEN
+                    #arg := -1.0;
+                END_IF;
+                #theta := ACOS(#arg) / 3.0;
                 FOR #i := 0 TO 2 DO
                     #roots[#i] := #m * COS(#theta - 2.0 * #PI * #i / 3.0) - #shift;
                 END_FOR;

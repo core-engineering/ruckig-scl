@@ -37,3 +37,9 @@ def test_degenerate_quadratic(harness):
     # a=0 -> x^2 - 3x + 2 = 0 -> {1, 2}
     r = _roots(harness, 0.0, 1.0, -3.0, 2.0)
     assert r == pytest.approx([1.0, 2.0], abs=1e-6)
+
+
+def test_irrational_single_root(harness):
+    # x^3 - 2 = 0 -> single real root 2^(1/3)
+    r = _roots(harness, 1.0, 0.0, 0.0, -2.0)
+    assert r == pytest.approx([2.0 ** (1.0 / 3.0)], abs=1e-6)
