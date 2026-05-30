@@ -3,7 +3,7 @@
     S7_EditorMode := "SCL";
     S7_Family := "Ruckig";
     S7_Optimized := "TRUE";
-    S7_Version := "0.1.0"
+    S7_Version := "0.2.0"
 }
 FUNCTION "AdvanceTime" : Void
     VAR_IN_OUT

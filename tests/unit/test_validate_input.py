@@ -85,16 +85,20 @@ def test_jmax_zero_returns_err(harness):
     assert _call(harness, inp) == RESULT_ERR_JMAX
 
 
-def test_current_vel_exceeds_vmax(harness):
+def test_current_vel_over_vmax_accepted_for_brake(harness):
+    """v0.2: an out-of-limits CURRENT velocity is admissible (Ruckig parity:
+    check_current_state_within_limits=false). The RuckigOtg FB brakes it back
+    into limits, so ValidateInput must NOT reject it."""
     inp = make_valid_input()
     inp["currentVelocity"] = [3.0, 0.0, 0.0, 0.0]  # > maxVelocity[0]=2.0
-    assert _call(harness, inp) == RESULT_ERR_CURR_VEL
+    assert _call(harness, inp) == RESULT_WORKING
 
 
-def test_current_acc_exceeds_amax(harness):
+def test_current_acc_over_amax_accepted_for_brake(harness):
+    """v0.2: an out-of-limits CURRENT acceleration is likewise admissible."""
     inp = make_valid_input()
     inp["currentAcceleration"] = [6.0, 0.0, 0.0, 0.0]  # > maxAcceleration[0]=5.0
-    assert _call(harness, inp) == RESULT_ERR_CURR_ACC
+    assert _call(harness, inp) == RESULT_WORKING
 
 
 def test_ndofs_zero_returns_err(harness):
@@ -118,4 +122,27 @@ def test_non_finite_position_returns_err(harness):
 def test_non_finite_target_returns_err(harness):
     inp = make_valid_input()
     inp["targetVelocity"] = [math.inf, 0.0, 0.0, 0.0]
+    assert _call(harness, inp) == RESULT_ERR_NON_FINITE
+
+
+def test_nonzero_target_velocity_and_acceleration_accepted(harness):
+    """v0.2: arbitrary target state. A finite, within-limits non-zero target
+    velocity and acceleration must validate (moving-target / approach-and-cruise
+    use case), not be rejected."""
+    inp = make_valid_input()
+    inp["targetVelocity"] = [1.0, 0.0, 0.0, 0.0]      # < maxVelocity[0]=2.0
+    inp["targetAcceleration"] = [0.5, 0.0, 0.0, 0.0]  # < maxAcceleration[0]=5.0
+    assert _call(harness, inp) == RESULT_WORKING
+
+
+def test_negative_target_velocity_accepted(harness):
+    """A negative within-limits target velocity is also valid."""
+    inp = make_valid_input()
+    inp["targetVelocity"] = [-1.5, 0.0, 0.0, 0.0]
+    assert _call(harness, inp) == RESULT_WORKING
+
+
+def test_non_finite_target_acceleration_returns_err(harness):
+    inp = make_valid_input()
+    inp["targetAcceleration"] = [math.nan, 0.0, 0.0, 0.0]
     assert _call(harness, inp) == RESULT_ERR_NON_FINITE

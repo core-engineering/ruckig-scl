@@ -8,3 +8,8 @@ htmlcov/
 dist/
 build/
 .uv-cache/
+
+# stray analysis temps
+.rkval.hpp
+.p3s1_tmp.cpp
+.brake_tmp.cpp

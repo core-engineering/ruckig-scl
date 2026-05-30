@@ -1,0 +1,103 @@
+{
+    S7_Author := "Martin C";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.2.0"
+}
+FUNCTION "ComputeProfile1Axis" : Word
+    VAR_IN_OUT
+        profile : _.typeProfile;
+    END_VAR
+    VAR_INPUT
+        p0   : LReal;
+        v0   : LReal;
+        a0   : LReal;
+        pT   : LReal;
+        vT   : LReal;
+        aT   : LReal;
+        vMax : LReal;
+        aMax : LReal;
+        jMax : LReal;
+    END_VAR
+    VAR_TEMP
+        // running best, shared across both jerk directions
+        bestDuration : LReal;
+        found        : Bool;
+        bestSjMax    : LReal;
+        bestT        : Array[0..6] of LReal;
+        // finalise scratch
+        i            : DInt;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      ComputeProfile1Axis (file ComputeProfile1Dof.s7dcl)
+            // Function:   Single-DoF time-optimal profile solver. v0.2 port of
+            //             Ruckig PositionThirdOrderStep1::get_profile. Runs the
+            //             three profile families (time_all_vel, time_acc0_acc1,
+            //             time_all_none_acc0_acc1) via "SolveDirection" in BOTH
+            //             jerk directions (positive, then mirrored limits) and
+            //             keeps the global minimum-duration candidate accepted
+            //             by CheckProfile. Mirror pass = Ruckig's negative-jerk
+            //             direction (no separate UDUD equations in step1).
+            //             Not yet ported: zero-limits special case and the
+            //             two-step fallbacks (time_*_two_step).
+            // Note:       FUNCTION identifier avoids a trailing "Dof": the
+            //             plc-code SCL lexer mis-tokenises the trailing "of"
+            //             as the OF keyword, splitting the return-var name
+            //             into "...D OF" and producing invalid Python.
+            // Family:     Ruckig
+            // Author:     Martin C
+            // Ref:        ruckig/src/ruckig/position_third_step1.cpp
+            //==========================================================
+        END_REGION
+
+        REGION Init running best
+            #bestDuration := 1.0E30;
+            #found        := false;
+            #bestSjMax    := #jMax;
+        END_REGION
+
+        REGION Solve positive direction
+            "SolveDirection"(profile := #profile, bestT := #bestT,
+                bestDuration := #bestDuration, found := #found, bestSjMax := #bestSjMax,
+                p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
+                svMax := #vMax, svMin := -#vMax, saMax := #aMax, saMin := -#aMax, sjMax := #jMax);
+        END_REGION
+
+        REGION Solve mirror direction
+            // Ruckig handles the negative jerk direction with no separate UDUD
+            // equations: it re-runs the SAME three families with MIRRORED limits
+            // (svMax=-vMax, svMin=+vMax, saMax=-aMax, saMin=+aMax, sjMax=-jMax).
+            // The shared running best keeps whichever direction is shorter.
+            "SolveDirection"(profile := #profile, bestT := #bestT,
+                bestDuration := #bestDuration, found := #found, bestSjMax := #bestSjMax,
+                p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
+                svMax := -#vMax, svMin := #vMax, saMax := -#aMax, saMin := #aMax, sjMax := -#jMax);
+        END_REGION
+
+        REGION Finalise winner or fail
+            IF #found THEN
+                FOR #i := 0 TO 6 DO
+                    #profile.t[#i] := #bestT[#i];
+                END_FOR;
+                // UDDU jerk pattern of the WINNING direction (bestSjMax is
+                // +jMax for the positive pass, -jMax for the mirror pass).
+                #profile.j[0] := #bestSjMax;
+                #profile.j[1] := 0.0;
+                #profile.j[2] := -#bestSjMax;
+                #profile.j[3] := 0.0;
+                #profile.j[4] := -#bestSjMax;
+                #profile.j[5] := 0.0;
+                #profile.j[6] := #bestSjMax;
+                "IntegrateProfileStates"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0);
+                #ComputeProfile1Axis := "dbRuckigConst".RESULT_WORKING;
+            ELSE
+                #ComputeProfile1Axis := "dbRuckigConst".RESULT_ERR_SOLVER;
+            END_IF;
+        END_REGION
+    END_NETWORK
+END_FUNCTION

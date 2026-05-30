@@ -1,0 +1,49 @@
+{
+    S7_Author := "Martin C";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.2.0"
+}
+FUNCTION "IntegrateProfileStates" : Void
+    VAR_IN_OUT
+        profile : _.typeProfile;
+    END_VAR
+    VAR_INPUT
+        p0 : LReal;
+        v0 : LReal;
+        a0 : LReal;
+    END_VAR
+    VAR_TEMP
+        i  : DInt;
+        dt : LReal;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      IntegrateProfileStates
+            // Function:   Forward-integrate a/v/p across the 7 phases from
+            //             an arbitrary initial state (p0, v0, a0).
+            // Family:     Ruckig
+            // Author:     Martin C
+            //==========================================================
+        END_REGION
+
+        REGION Seed initial state
+            #profile.a[0] := #a0;
+            #profile.v[0] := #v0;
+            #profile.p[0] := #p0;
+        END_REGION
+
+        REGION Integrate seven phases
+            FOR #i := 0 TO 6 DO
+                #dt := #profile.t[#i];
+                #profile.a[#i + 1] := #profile.a[#i] + #profile.j[#i] * #dt;
+                #profile.v[#i + 1] := #profile.v[#i] + #profile.a[#i] * #dt + 0.5 * #profile.j[#i] * #dt * #dt;
+                #profile.p[#i + 1] := #profile.p[#i] + #profile.v[#i] * #dt + 0.5 * #profile.a[#i] * #dt * #dt + #profile.j[#i] * #dt * #dt * #dt / 6.0;
+            END_FOR;
+        END_REGION
+    END_NETWORK
+END_FUNCTION

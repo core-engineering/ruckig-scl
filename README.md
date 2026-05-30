@@ -4,19 +4,36 @@ A Siemens SCL (Structured Text) port of the [Ruckig](https://github.com/pantor/r
 Online Trajectory Generation library, for S7-1500 PLCs. MIT-licensed (same as
 upstream Ruckig).
 
-**Status: v0.1.0 — single-axis, rest-to-rest, position interface
-(target velocity & acceleration = 0).**
+**Status: v0.2.0 — single-axis, arbitrary initial AND target states
+(`v0, a0 ≠ 0`, target velocity & acceleration ≠ 0), with online retarget
+chaining and a brake pre-phase.**
 
-## Features (v0.1)
+## Features (v0.2)
 
-- Single-axis jerk-limited (S-curve) trajectory generation
-- Point-to-point motion from rest to rest, with the three sub-cases:
-  triangular jerk, a_max-reached, and full trapezoidal (v_max reached)
+- Single-axis jerk-limited (S-curve), **time-optimal** trajectory generation
+  for arbitrary `(p0, v0, a0) → (pT, vT, aT)` within symmetric limits
+- Full profile-family solver (velocity-reaching, short-move `ACC0_ACC1`, and
+  quartic `NONE/ACC0/ACC1`), in both jerk directions, backed by closed-form
+  cubic/quartic root solvers — selects the minimum-duration feasible profile
+- Online `pass_to_input` chaining: retarget mid-motion with C2 continuity
+  (no setpoint jump)
+- Brake pre-phase when the initial state is out of limits (first enable in
+  motion)
 - PLCopen DA011 continuous-enable interface (`enable` / `valid` / `busy` /
-  `done` / `error` / `status`)
-- DA014 status/error codes via a shared constants block (`dbRuckigConst`)
-- Validated cycle-by-cycle against the official Ruckig solver: agreement to
-  ~1e-15 (machine epsilon) on all 10 nominal scenarios
+  `done` / `error` / `status`) and DA014 status/error codes (`dbRuckigConst`)
+- Validated against the official Ruckig solver: the static single-DoF solver
+  agrees to the floating-point floor (~1e-15) across all profile families;
+  cyclic rest-to-rest / zero-target-velocity parity holds to 1e-6
+
+### Known limitations (v0.2)
+
+- With a **moving target** (non-zero target velocity), every cycle matches
+  Ruckig to ~1e-15 except the single finishing cycle (a bounded ~1e-3
+  sampling-convention delta — `AdvanceTime` clamps to the trajectory duration
+  while Ruckig samples the grid time and keeps moving).
+- The brake pre-phase brakes correctly and reaches the target, but rides a
+  once-computed brake + main concatenation that is feasible, **not**
+  time-optimal. Full brake machinery is deferred to v0.7.
 
 ## Architecture
 
@@ -24,16 +41,21 @@ One stateful FB orchestrating pure algorithmic FCs, called once per PLC cycle:
 
 | Block | Role |
 |-------|------|
-| `RuckigOtg` (FB) | Lifecycle: validate → detect change → recompute → advance → evaluate |
-| `ValidateInput` (FC) | Bounds / finiteness / consistency checks (DA014 codes) |
+| `RuckigOtg` (FB) | Lifecycle: validate → detect change → (brake +) recompute → advance → evaluate; `pass_to_input` chaining |
+| `ValidateInput` (FC) | Finiteness / positive-limit / nDofs checks (DA014 codes) |
 | `IsFiniteLreal` (FC) | NaN / Inf guard |
-| `ComputeMinDuration` (FC) | Time-optimal rest-to-rest duration |
-| `ComputeFinalProfile` (FC) | Fill the 7-phase profile |
-| `AdvanceTime` / `StateAtTime` (FC) | Integrate time, evaluate p/v/a |
+| `ComputeProfile1Dof` (FC, `ComputeProfile1Axis`) | General time-optimal single-DoF solver (enumerate families × directions, select min-duration) |
+| `SolveDirection` (FC) | Runs the three profile families for one jerk direction |
+| `SolveCubic` / `SolveQuartic` (FC) | Closed-form real-root solvers (Cardano / Ferrari) |
+| `IntegrateProfileStates` (FC) | Fill `a/v/p` from `t/j` + initial state |
+| `CheckProfile` (FC) | Validate a candidate profile by integration |
+| `ComputeBrakeProfile` (FC) | Brake sub-profile for an out-of-limits initial state |
+| `AdvanceTime` / `StateAtTime` (FC) | Integrate time, evaluate p/v/a (brake prefix first) |
 
 Data is carried by UDTs (`typeRuckigInput`, `typeRuckigOutput`, `typeProfile`,
-`typeTrajectory`, `typeBrakeProfile`). See
-[docs/superpowers/specs/2026-05-28-ruckig-scl-port-design.md](docs/superpowers/specs/2026-05-28-ruckig-scl-port-design.md).
+`typeTrajectory`, `typeBrakeProfile`). See the design specs under
+[docs/superpowers/specs/](docs/superpowers/specs/)
+(`2026-05-28-…-port-design.md` for v0.1, `2026-05-30-…-v0.2-design.md` for v0.2).
 
 ## Target platform
 
@@ -80,18 +102,18 @@ The SCL blocks are tested in Python via the
 
 ```bash
 uv sync                       # core deps (offline-installable)
-uv run pytest tests/unit      # 43 unit tests
+uv run pytest tests/unit      # unit tests
 
 uv sync --extra parity        # adds the Ruckig reference (PyPI: ruckig)
-uv run pytest tests/parity    # 10 cross-implementation parity scenarios
+uv run pytest tests/parity    # 18 cross-implementation parity scenarios
 ```
 
 ## Roadmap
 
 | Version | Scope |
 |---------|-------|
-| v0.1 | Single-axis, rest-to-rest, position interface *(this release)* |
-| v0.2 | Single-axis with arbitrary target velocity / acceleration |
+| v0.1 | Single-axis, rest-to-rest, position interface |
+| v0.2 | Single-axis with arbitrary initial / target velocity & acceleration *(this release)* |
 | v0.3–v0.5 | Multi-axis with time synchronization |
 | v0.6 | Velocity interface |
 | v0.7 | Brake profiles and degenerate cases |

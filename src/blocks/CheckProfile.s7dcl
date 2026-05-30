@@ -1,0 +1,86 @@
+{
+    S7_Author := "Martin C";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.2.0"
+}
+FUNCTION "CheckProfile" : Bool
+    VAR_IN_OUT
+        profile : _.typeProfile;
+    END_VAR
+    VAR_INPUT
+        p0   : LReal;
+        v0   : LReal;
+        a0   : LReal;
+        pT   : LReal;
+        vT   : LReal;
+        aT   : LReal;
+        vMax : LReal;
+        aMax : LReal;
+    END_VAR
+    VAR_TEMP
+        i : DInt;
+    END_VAR
+    VAR CONSTANT
+        EPS_TIME   : LReal := 1.0E-9;
+        EPS_LIMIT  : LReal := 1.0E-7;
+        EPS_TARGET : LReal := 1.0E-6;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      CheckProfile
+            // Function:   Validate a candidate 7 phase profile: times,
+            //             v/a limits, and reaching the target state.
+            // Family:     Ruckig
+            // Author:     Martin C
+            //==========================================================
+        END_REGION
+
+        REGION Integrate states from initial condition
+            "IntegrateProfileStates"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0);
+        END_REGION
+
+        REGION Phase times non negative
+            FOR #i := 0 TO 6 DO
+                IF #profile.t[#i] < -#EPS_TIME THEN
+                    #CheckProfile := false;
+                    RETURN;
+                END_IF;
+            END_FOR;
+        END_REGION
+
+        REGION Velocity and acceleration limits
+            FOR #i := 0 TO 7 DO
+                IF ABS(#profile.v[#i]) > #vMax + #EPS_LIMIT THEN
+                    #CheckProfile := false;
+                    RETURN;
+                END_IF;
+                IF ABS(#profile.a[#i]) > #aMax + #EPS_LIMIT THEN
+                    #CheckProfile := false;
+                    RETURN;
+                END_IF;
+            END_FOR;
+        END_REGION
+
+        REGION Reaches target state
+            IF ABS(#profile.p[7] - #pT) > #EPS_TARGET THEN
+                #CheckProfile := false;
+                RETURN;
+            END_IF;
+            IF ABS(#profile.v[7] - #vT) > #EPS_TARGET THEN
+                #CheckProfile := false;
+                RETURN;
+            END_IF;
+            IF ABS(#profile.a[7] - #aT) > #EPS_TARGET THEN
+                #CheckProfile := false;
+                RETURN;
+            END_IF;
+        END_REGION
+
+        #CheckProfile := true;
+    END_NETWORK
+END_FUNCTION

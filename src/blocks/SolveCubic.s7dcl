@@ -1,0 +1,132 @@
+{
+    S7_Author := "Martin C";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.2.0"
+}
+FUNCTION "SolveCubic" : Void
+    VAR_INPUT
+        a : LReal;
+        b : LReal;
+        c : LReal;
+        d : LReal;
+    END_VAR
+    VAR_OUTPUT
+        roots : Array[0..3] of LReal;
+        count : Int;
+    END_VAR
+    VAR_TEMP
+        bb    : LReal;
+        cc    : LReal;
+        dd    : LReal;
+        p     : LReal;
+        q     : LReal;
+        shift : LReal;
+        disc  : LReal;
+        sq    : LReal;
+        u     : LReal;
+        v     : LReal;
+        m     : LReal;
+        theta : LReal;
+        qdisc : LReal;
+        arg   : LReal;
+        i     : DInt;
+    END_VAR
+    VAR CONSTANT
+        EPS : LReal := 1.0E-12;
+        PI  : LReal := 3.141592653589793;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Degenerate to quadratic or linear
+            IF ABS(#a) < #EPS THEN
+                IF ABS(#b) < #EPS THEN
+                    IF ABS(#c) < #EPS THEN
+                        #count := 0;
+                        RETURN;
+                    END_IF;
+                    #roots[0] := -#d / #c;
+                    #count := 1;
+                    RETURN;
+                END_IF;
+                #qdisc := #c * #c - 4.0 * #b * #d;
+                IF #qdisc < -#EPS THEN
+                    #count := 0;
+                    RETURN;
+                END_IF;
+                IF #qdisc < #EPS THEN
+                    #roots[0] := -#c / (2.0 * #b);
+                    #count := 1;
+                    RETURN;
+                END_IF;
+                #roots[0] := (-#c + SQRT(#qdisc)) / (2.0 * #b);
+                #roots[1] := (-#c - SQRT(#qdisc)) / (2.0 * #b);
+                #count := 2;
+                RETURN;
+            END_IF;
+        END_REGION
+
+        REGION Depress to t cubed plus p t plus q
+            #bb := #b / #a;
+            #cc := #c / #a;
+            #dd := #d / #a;
+            #shift := #bb / 3.0;
+            #p := #cc - #bb * #bb / 3.0;
+            #q := 2.0 * #bb * #bb * #bb / 27.0 - #bb * #cc / 3.0 + #dd;
+        END_REGION
+
+        REGION Solve by discriminant
+            #disc := #q * #q / 4.0 + #p * #p * #p / 27.0;
+            IF #disc > #EPS THEN
+                #sq := SQRT(#disc);
+                IF ABS(-#q / 2.0 + #sq) < #EPS THEN
+                    #u := 0.0;
+                ELSE
+                    #u := EXP(LN(ABS(-#q / 2.0 + #sq)) / 3.0);
+                    IF (-#q / 2.0 + #sq) < 0.0 THEN
+                        #u := -#u;
+                    END_IF;
+                END_IF;
+                IF ABS(-#q / 2.0 - #sq) < #EPS THEN
+                    #v := 0.0;
+                ELSE
+                    #v := EXP(LN(ABS(-#q / 2.0 - #sq)) / 3.0);
+                    IF (-#q / 2.0 - #sq) < 0.0 THEN
+                        #v := -#v;
+                    END_IF;
+                END_IF;
+                #roots[0] := #u + #v - #shift;
+                #count := 1;
+            ELSIF #disc > -#EPS THEN
+                #u := EXP(LN(ABS(-#q / 2.0)) / 3.0);
+                IF (-#q / 2.0) < 0.0 THEN
+                    #u := -#u;
+                END_IF;
+                IF ABS(#u) < #EPS THEN
+                    #roots[0] := -#shift;
+                    #count := 1;
+                ELSE
+                    #roots[0] := 2.0 * #u - #shift;
+                    #roots[1] := -#u - #shift;
+                    #count := 2;
+                END_IF;
+            ELSE
+                #m := 2.0 * SQRT(-#p / 3.0);
+                #arg := 3.0 * #q / (#p * #m);
+                IF #arg > 1.0 THEN
+                    #arg := 1.0;
+                END_IF;
+                IF #arg < -1.0 THEN
+                    #arg := -1.0;
+                END_IF;
+                #theta := ACOS(#arg) / 3.0;
+                FOR #i := 0 TO 2 DO
+                    #roots[#i] := #m * COS(#theta - 2.0 * #PI * #i / 3.0) - #shift;
+                END_FOR;
+                #count := 3;
+            END_IF;
+        END_REGION
+    END_NETWORK
+END_FUNCTION

@@ -1,0 +1,16 @@
+name: v0.2 moving target negative velocity
+n_dofs: 1
+target_position: [-1.0]
+target_velocity: [-0.5]
+max_velocity: [2.0]
+max_acceleration: [5.0]
+max_jerk: [10.0]
+cycle_time: 0.010
+# Terminal-cycle sampling-convention override (not a solver bug).
+# Every non-final cycle matches Ruckig to <=1e-15 on p/v/a and duration to 2e-16.
+# Only the single finishing cycle differs: Ruckig samples it at grid time
+# t=N*dt (< duration) and continues along the moving target, while the SCL FB's
+# AdvanceTime clamps currentTime to `duration`, sampling exactly the target
+# state. With a moving target (target_velocity != 0) these two sampling times
+# give a small position delta (~5e-4 here). Bounded well under 1e-3.
+tol_position: 1.0e-3

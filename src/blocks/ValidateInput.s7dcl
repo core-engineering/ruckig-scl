@@ -3,7 +3,7 @@
     S7_EditorMode := "SCL";
     S7_Family := "Ruckig";
     S7_Optimized := "TRUE";
-    S7_Version := "0.1.0"
+    S7_Version := "0.2.0"
 }
 FUNCTION "ValidateInput" : Word
     VAR_IN_OUT
@@ -74,15 +74,12 @@ FUNCTION "ValidateInput" : Word
                     RETURN;
                 END_IF;
 
-                // Current state consistency
-                IF ABS(#input.currentVelocity[#i]) > #input.maxVelocity[#i] THEN
-                    #ValidateInput := "dbRuckigConst".RESULT_ERR_CURR_VEL;
-                    RETURN;
-                END_IF;
-                IF ABS(#input.currentAcceleration[#i]) > #input.maxAcceleration[#i] THEN
-                    #ValidateInput := "dbRuckigConst".RESULT_ERR_CURR_ACC;
-                    RETURN;
-                END_IF;
+                // NOTE: the current state (velocity/acceleration) is deliberately
+                // NOT required to be within limits. Like Ruckig's validate()
+                // (check_current_state_within_limits = false by default), an
+                // out-of-limits initial state is admissible: the RuckigOtg FB
+                // prepends a brake pre-phase to bring it back inside limits.
+                // Only finiteness and positive limit magnitudes are enforced.
             END_FOR;
         END_REGION
 

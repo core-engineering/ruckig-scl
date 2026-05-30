@@ -1,0 +1,12 @@
+name: v0.2 non-rest start velocity
+# Start already moving (v0=1.0, within v_max), come to rest at a far target so
+# the profile reaches the cruise (v_max) phase. Exercises the v0.2 arbitrary
+# initial-state path; matches Ruckig to <=1e-6 at every cycle (zero target
+# velocity, so no terminal-sampling drift).
+n_dofs: 1
+current_velocity: [1.0]
+target_position: [8.0]
+max_velocity: [2.0]
+max_acceleration: [5.0]
+max_jerk: [10.0]
+cycle_time: 0.010
