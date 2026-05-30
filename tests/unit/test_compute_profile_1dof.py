@@ -74,7 +74,7 @@ def test_moving_target_vel(harness):
 # High vMax so velocity never saturates; both accel limits are reached.
 
 def test_acc0_acc1_rest_to_rest_short(harness):
-    # oracle: ACC0_ACC1, t[3]=0, duration ~= 0.876356092008958
+    # oracle: ACC0_ACC1, t[3]=0, duration ~= 1.62828568570857
     args = (0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 10.0, 2.0, 10.0)
     _check_matches_oracle(harness, args)
     _, _, prof = _run(harness, *args)
@@ -82,7 +82,7 @@ def test_acc0_acc1_rest_to_rest_short(harness):
 
 
 def test_acc0_acc1_rest_to_rest_shorter(harness):
-    # oracle: ACC0_ACC1, t[3]=0, duration ~= 0.712310562561766
+    # oracle: ACC0_ACC1, t[3]=0, duration ~= 1.21980390271856
     args = (0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 10.0, 2.0, 10.0)
     _check_matches_oracle(harness, args)
     _, _, prof = _run(harness, *args)
@@ -90,7 +90,7 @@ def test_acc0_acc1_rest_to_rest_shorter(harness):
 
 
 def test_acc0_acc1_nonzero_v0_a0(harness):
-    # oracle: ACC0_ACC1, t[3]=0, duration ~= 0.844713674420304
+    # oracle: ACC0_ACC1, t[3]=0, duration ~= 1.77273663157048
     args = (0.0, 0.2, 1.0, 1.5, 0.0, 0.0, 10.0, 2.0, 10.0)
     _check_matches_oracle(harness, args)
     _, _, prof = _run(harness, *args)
@@ -98,8 +98,18 @@ def test_acc0_acc1_nonzero_v0_a0(harness):
 
 
 def test_acc0_acc1_nonzero_aT(harness):
-    # oracle: ACC0_ACC1, t[3]=0, duration ~= 0.851234058375211
+    # oracle: ACC0_ACC1, t[3]=0, duration ~= 1.68572943613517
     args = (0.0, 0.0, 0.0, 1.0, 0.0, 0.5, 10.0, 2.0, 10.0)
+    _check_matches_oracle(harness, args)
+    _, _, prof = _run(harness, *args)
+    assert prof.t[3] == pytest.approx(0.0, abs=1e-12)
+
+
+def test_acc0_acc1_nonzero_a0_and_aT(harness):
+    # nonzero initial AND target acceleration together -> ACC0_ACC1 (t[3]=0);
+    # exercises the full asymmetric a0/aT interaction in num1/h2/h3/t[6]
+    # oracle: ACC0_ACC1, t[3]=0, duration ~= 1.7856714977213048
+    args = (0.0, 0.3, 1.0, 1.5, 0.0, 0.5, 10.0, 2.0, 10.0)
     _check_matches_oracle(harness, args)
     _, _, prof = _run(harness, *args)
     assert prof.t[3] == pytest.approx(0.0, abs=1e-12)
