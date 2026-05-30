@@ -3,7 +3,7 @@
     S7_EditorMode := "SCL";
     S7_Family := "Ruckig";
     S7_Optimized := "TRUE";
-    S7_Version := "0.1.0"
+    S7_Version := "0.2.0"
 }
 FUNCTION "StateAtTime" : Void
     VAR_IN_OUT
@@ -21,6 +21,8 @@ FUNCTION "StateAtTime" : Void
         i        : DInt;
         tElapsed : LReal;
         dt       : LReal;
+        brakeDur : LReal;
+        tEval    : LReal;
     END_VAR
 
     { S7_Language := "SCL" }
@@ -30,17 +32,51 @@ FUNCTION "StateAtTime" : Void
             // Title:      StateAtTime
             // Function:   Evaluate position, velocity, acceleration at
             //             arbitrary time t on a 7 phase profile.
+            //             If a brake pre-profile exists it runs FIRST; the
+            //             main 7 phase profile is then sampled at t-brakeDur.
             //             Clamps to final state if t exceeds duration.
+            // Note:       Brake positions are seeded RELATIVE (brake.p[0]=0).
+            //             Position continuity at the brake/main boundary
+            //             requires the caller to seed profile.p[0]=brake.p[2]
+            //             (Task 10 seeding responsibility). This FC integrates
+            //             from whatever seeds are present, it does not offset.
             // Family:     Ruckig
             // Author:     Martin C
             //==========================================================
         END_REGION
 
+        REGION Brake prefix
+            #brakeDur := #profile.brake.t[0] + #profile.brake.t[1];
+            #tEval := #t;
+            IF #brakeDur > 0.0 THEN
+                IF #t <= 0.0 THEN
+                    #p := #profile.brake.p[0];
+                    #v := #profile.brake.v[0];
+                    #a := #profile.brake.a[0];
+                    RETURN;
+                END_IF;
+                IF #t <= #brakeDur + "dbRuckigConst".EPS_TIME THEN
+                    #tElapsed := 0.0;
+                    FOR #i := 0 TO 1 DO
+                        IF #t <= #tElapsed + #profile.brake.t[#i] + "dbRuckigConst".EPS_TIME THEN
+                            #dt := #t - #tElapsed;
+                            #a := #profile.brake.a[#i] + #profile.brake.j[#i] * #dt;
+                            #v := #profile.brake.v[#i] + #profile.brake.a[#i] * #dt + 0.5 * #profile.brake.j[#i] * #dt * #dt;
+                            #p := #profile.brake.p[#i] + #profile.brake.v[#i] * #dt + 0.5 * #profile.brake.a[#i] * #dt * #dt + #profile.brake.j[#i] * #dt * #dt * #dt / 6.0;
+                            RETURN;
+                        END_IF;
+                        #tElapsed := #tElapsed + #profile.brake.t[#i];
+                    END_FOR;
+                END_IF;
+                #tEval := #t - #brakeDur;
+            END_IF;
+        END_REGION
+
         REGION Locate phase and evaluate
             #tElapsed := 0.0;
             FOR #i := 0 TO 6 DO
-                IF #t <= #tElapsed + #profile.t[#i] + "dbRuckigConst".EPS_TIME THEN
-                    #dt := #t - #tElapsed;
+                IF #tEval <= #tElapsed + #profile.t[#i] + "dbRuckigConst".EPS_TIME THEN
+                    #dt := #tEval - #tElapsed;
                     #a := #profile.a[#i] + #profile.j[#i] * #dt;
                     #v := #profile.v[#i] + #profile.a[#i] * #dt + 0.5 * #profile.j[#i] * #dt * #dt;
                     #p := #profile.p[#i] + #profile.v[#i] * #dt + 0.5 * #profile.a[#i] * #dt * #dt + #profile.j[#i] * #dt * #dt * #dt / 6.0;
