@@ -105,3 +105,103 @@ def test_output_continuity_no_discontinuity(harness):
         new_pos = out.newPosition[0]
         assert abs(new_pos - prev_pos) <= 2.0 * 0.010 + 1e-9
         prev_pos = new_pos
+
+
+# ---------------------------------------------------------------------------
+# v0.2 arbitrary-state behaviour: moving target, retarget chaining, brake.
+# ---------------------------------------------------------------------------
+
+
+def test_moving_target_reaches_target_velocity(harness):
+    """Constant non-zero target velocity -> at done, v == targetVel and p == targetPos."""
+    inp = default_input()
+    inp["targetPosition"][0] = 1.0
+    inp["targetVelocity"][0] = 0.5  # cruise at +0.5 at the target
+    inp["maxVelocity"][0] = 2.0
+    inp["maxAcceleration"][0] = 5.0
+    inp["maxJerk"][0] = 10.0
+
+    final_pos = 0.0
+    final_vel = 0.0
+    for _cycle in range(800):
+        harness.set_inputs(enable=True, input=inp, cycleTime=0.010, reset=False)
+        harness.execute()
+        out = harness.get_output("output")
+        final_pos = out.newPosition[0]
+        final_vel = out.newVelocity[0]
+        if harness.get_output("done"):
+            break
+
+    assert harness.get_output("done") is True
+    assert harness.get_output("error") is False
+    assert final_vel == pytest.approx(0.5, abs=1e-3)
+    assert final_pos == pytest.approx(1.0, abs=1e-3)
+
+
+def test_retarget_mid_motion_no_setpoint_jump(harness):
+    """Change target 1.0 -> 2.0 mid-motion: no commanded jump, eventually reaches 2.0."""
+    dt = 0.010
+    vmax = 2.0
+    inp = default_input()
+    inp["targetPosition"][0] = 1.0
+    inp["maxVelocity"][0] = vmax
+    inp["maxAcceleration"][0] = 5.0
+    inp["maxJerk"][0] = 10.0
+
+    # Run ~20 cycles toward target 1.0.
+    prev_pos = 0.0
+    for _cycle in range(20):
+        harness.set_inputs(enable=True, input=inp, cycleTime=dt, reset=False)
+        harness.execute()
+        prev_pos = harness.get_output("output").newPosition[0]
+
+    # Retarget to 2.0 — assert NO setpoint jump on the recompute cycle.
+    inp["targetPosition"][0] = 2.0
+    harness.set_inputs(enable=True, input=inp, cycleTime=dt, reset=False)
+    harness.execute()
+    retarget_pos = harness.get_output("output").newPosition[0]
+    jump = abs(retarget_pos - prev_pos)
+    assert jump <= vmax * dt + 1e-6, f"setpoint jumped {jump} across retarget"
+
+    # Continue to completion -> reaches 2.0.
+    final_pos = retarget_pos
+    for _cycle in range(800):
+        harness.set_inputs(enable=True, input=inp, cycleTime=dt, reset=False)
+        harness.execute()
+        final_pos = harness.get_output("output").newPosition[0]
+        if harness.get_output("done"):
+            break
+
+    assert harness.get_output("done") is True
+    assert harness.get_output("error") is False
+    assert final_pos == pytest.approx(2.0, abs=1e-3)
+
+
+def test_first_enable_in_motion_over_vmax_brakes_then_converges(harness):
+    """First enable with currentVelocity > vMax: brake, no error, converges to target."""
+    dt = 0.010
+    vmax = 2.0
+    inp = default_input()
+    inp["currentVelocity"][0] = 5.0  # well over vMax=2.0
+    inp["targetPosition"][0] = 1.0
+    inp["maxVelocity"][0] = vmax
+    inp["maxAcceleration"][0] = 5.0
+    inp["maxJerk"][0] = 10.0
+
+    final_pos = 0.0
+    final_vel = 0.0
+    for _cycle in range(1500):
+        harness.set_inputs(enable=True, input=inp, cycleTime=dt, reset=False)
+        harness.execute()
+        out = harness.get_output("output")
+        final_pos = out.newPosition[0]
+        final_vel = out.newVelocity[0]
+        assert harness.get_output("error") is False
+        if harness.get_output("done"):
+            break
+
+    assert harness.get_output("done") is True
+    assert final_pos == pytest.approx(1.0, abs=1e-3)
+    assert abs(final_vel) <= vmax + 1e-3
+
+

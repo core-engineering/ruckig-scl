@@ -3,7 +3,7 @@
     S7_EditorMode := "SCL";
     S7_Family := "Ruckig";
     S7_Optimized := "TRUE";
-    S7_Version := "0.1.0"
+    S7_Version := "0.2.0"
 }
 FUNCTION_BLOCK "RuckigOtg"
     VAR_INPUT
@@ -24,11 +24,31 @@ FUNCTION_BLOCK "RuckigOtg"
         trajectory : _.typeTrajectory;
         prevInput  : _.typeRuckigInput;
         firstCall  : Bool := true;
+        // pass_to_input chain state: last commanded setpoint, seeds the next
+        // solve so a retarget is C2-continuous (no jump on the commanded axis).
+        chainPos   : LReal := 0.0;
+        chainVel   : LReal := 0.0;
+        chainAcc   : LReal := 0.0;
     END_VAR
     VAR_TEMP
         validationResult  : Word;
         profileResult     : Word;
         recomputeRequired : Bool;
+        // brake pre-phase scratch
+        brakeNeeded   : Bool;
+        brakeDuration : LReal;
+        pBrake        : LReal;
+        vBrake        : LReal;
+        aBrake        : LReal;
+        // main solve seed state (post-brake)
+        mainP0 : LReal;
+        mainV0 : LReal;
+        mainA0 : LReal;
+        // duration accumulation
+        mainDuration : LReal;
+        i            : DInt;
+        // already-at-target degenerate guard
+        atTarget : Bool;
     END_VAR
 
     { S7_Language := "SCL" }
@@ -38,8 +58,14 @@ FUNCTION_BLOCK "RuckigOtg"
             // Title:      RuckigOtg
             // Function:   Online Trajectory Generator (PLCopen DA011).
             //             Called once per PLC cycle while enabled; emits a
-            //             jerk-limited single-axis trajectory toward the
-            //             target, with valid/busy/done/error + DA014 status.
+            //             jerk-limited single-axis trajectory toward an
+            //             ARBITRARY target state (pos/vel/acc), with
+            //             pass_to_input chaining (C2 retarget) and a brake
+            //             pre-phase when the seed state is out of limits.
+            //             valid/busy/done/error + DA014 status.
+            // Solver:     v0.2 stack -> ComputeBrakeProfile (optional) then
+            //             ComputeProfile1Axis; sampled by StateAtTime which
+            //             evaluates the brake prefix first.
             // Family:     Ruckig
             // Author:     Martin C
             //==========================================================
@@ -70,9 +96,19 @@ FUNCTION_BLOCK "RuckigOtg"
             END_IF;
         END_REGION
 
+        REGION First enable - seed chain from real axis state
+            IF #firstCall THEN
+                #chainPos := #input.currentPosition[0];
+                #chainVel := #input.currentVelocity[0];
+                #chainAcc := #input.currentAcceleration[0];
+            END_IF;
+        END_REGION
+
         REGION Change detection
             #recomputeRequired := #firstCall OR #reset OR NOT #trajectory.isValid
                 OR ABS(#input.targetPosition[0] - #prevInput.targetPosition[0]) > "dbRuckigConst".EPS_POSITION
+                OR ABS(#input.targetVelocity[0] - #prevInput.targetVelocity[0]) > "dbRuckigConst".EPS_VELOCITY
+                OR ABS(#input.targetAcceleration[0] - #prevInput.targetAcceleration[0]) > "dbRuckigConst".EPS_DERIV
                 OR ABS(#input.maxVelocity[0] - #prevInput.maxVelocity[0]) > "dbRuckigConst".EPS_VELOCITY
                 OR ABS(#input.maxAcceleration[0] - #prevInput.maxAcceleration[0]) > "dbRuckigConst".EPS_DERIV
                 OR ABS(#input.maxJerk[0] - #prevInput.maxJerk[0]) > "dbRuckigConst".EPS_DERIV;
@@ -80,30 +116,117 @@ FUNCTION_BLOCK "RuckigOtg"
 
         REGION Recompute trajectory
             IF #recomputeRequired THEN
-                #trajectory.independentMinDurations[0] := "ComputeMinDuration"(
-                    currentPos := #input.currentPosition[0],
-                    currentVel := #input.currentVelocity[0],
-                    currentAcc := #input.currentAcceleration[0],
-                    targetPos := #input.targetPosition[0],
-                    targetVel := #input.targetVelocity[0],
-                    targetAcc := #input.targetAcceleration[0],
-                    maxVel := #input.maxVelocity[0],
-                    maxAcc := #input.maxAcceleration[0],
-                    maxJerk := #input.maxJerk[0]);
-                #trajectory.duration := #trajectory.independentMinDurations[0];
-
-                #profileResult := "ComputeFinalProfile"(profile := #trajectory.profiles[0], duration := #trajectory.duration, p0 := #input.currentPosition[0], p1 := #input.targetPosition[0], vMax := #input.maxVelocity[0], aMax := #input.maxAcceleration[0], jMax := #input.maxJerk[0]);
-                // WORKING (normal) and FINISHED (trivial zero-displacement) are both success.
-                IF #profileResult <> "dbRuckigConst".RESULT_WORKING AND #profileResult <> "dbRuckigConst".RESULT_FINISHED THEN
-                    #valid := false;
-                    #busy := false;
-                    #done := false;
-                    #error := true;
-                    #status := "dbRuckigConst".RESULT_ERR_TRAJ;
-                    #trajectory.isValid := false;
-                    RETURN;
+                // ---- Already-at-target degenerate case ---------------------
+                // If the seed state already equals the target state (within
+                // EPS), there is nothing to solve. The general solver divides
+                // by zero on the fully-degenerate p0=v0=a0=pT=vT=aT input, so
+                // short-circuit with a zero-duration profile (mirrors the v0.1
+                // trivial zero-displacement early-out).
+                #atTarget :=
+                    ABS(#input.targetPosition[0] - #chainPos) < "dbRuckigConst".EPS_POSITION
+                    AND ABS(#input.targetVelocity[0] - #chainVel) < "dbRuckigConst".EPS_VELOCITY
+                    AND ABS(#input.targetAcceleration[0] - #chainAcc) < "dbRuckigConst".EPS_DERIV;
+                IF #atTarget THEN
+                    FOR #i := 0 TO 6 DO
+                        #trajectory.profiles[0].t[#i] := 0.0;
+                        #trajectory.profiles[0].j[#i] := 0.0;
+                    END_FOR;
+                    FOR #i := 0 TO 7 DO
+                        #trajectory.profiles[0].a[#i] := #chainAcc;
+                        #trajectory.profiles[0].v[#i] := #chainVel;
+                        #trajectory.profiles[0].p[#i] := #chainPos;
+                    END_FOR;
+                    #trajectory.profiles[0].brake.t[0] := 0.0;
+                    #trajectory.profiles[0].brake.t[1] := 0.0;
+                    #trajectory.profiles[0].brake.j[0] := 0.0;
+                    #trajectory.profiles[0].brake.j[1] := 0.0;
+                    #trajectory.profiles[0].brake.a[0] := 0.0;
+                    #trajectory.profiles[0].brake.a[1] := 0.0;
+                    #trajectory.profiles[0].brake.a[2] := 0.0;
+                    #trajectory.profiles[0].brake.v[0] := 0.0;
+                    #trajectory.profiles[0].brake.v[1] := 0.0;
+                    #trajectory.profiles[0].brake.v[2] := 0.0;
+                    #trajectory.profiles[0].brake.p[0] := 0.0;
+                    #trajectory.profiles[0].brake.p[1] := 0.0;
+                    #trajectory.profiles[0].brake.p[2] := 0.0;
+                    #trajectory.duration := 0.0;
+                    #trajectory.independentMinDurations[0] := 0.0;
+                    #trajectory.currentTime := 0.0;
+                    #trajectory.isValid := true;
+                    #prevInput := #input;
+                    #firstCall := false;
                 END_IF;
 
+                // ---- Brake + solve (only when NOT already at target) -------
+                IF NOT #atTarget THEN
+                    // Brake pre-phase: the seed (chainVel/chainAcc) may be out
+                    // of limits (e.g. first enable while the axis moves faster
+                    // than maxVelocity). If so, prepend a brake that drives the
+                    // state back inside limits; the main solve then starts from
+                    // the POST-BRAKE state.
+                    #brakeNeeded := ABS(#chainVel) > #input.maxVelocity[0]
+                        OR ABS(#chainAcc) > #input.maxAcceleration[0];
+
+                    IF #brakeNeeded THEN
+                        // ComputeBrakeProfile fills profile.brake.* and returns
+                        // the brake duration; pBrake is the RELATIVE position
+                        // advance, vBrake/aBrake the absolute post-brake state.
+                        #brakeDuration := "ComputeBrakeProfile"(
+                            profile := #trajectory.profiles[0],
+                            v0 := #chainVel,
+                            a0 := #chainAcc,
+                            vMax := #input.maxVelocity[0],
+                            aMax := #input.maxAcceleration[0],
+                            jMax := #input.maxJerk[0],
+                            pBrake => #pBrake,
+                            vBrake => #vBrake,
+                            aBrake => #aBrake);
+                        #mainP0 := #chainPos + #pBrake;
+                        #mainV0 := #vBrake;
+                        #mainA0 := #aBrake;
+                    ELSE
+                        // No brake: explicitly zero profile.brake so the
+                        // StateAtTime brake-prefix check (brakeDur>0) sees no
+                        // brake. The solver does NOT touch profile.brake.
+                        #trajectory.profiles[0].brake.t[0] := 0.0;
+                        #trajectory.profiles[0].brake.t[1] := 0.0;
+                        #trajectory.profiles[0].brake.j[0] := 0.0;
+                        #trajectory.profiles[0].brake.j[1] := 0.0;
+                        #trajectory.profiles[0].brake.a[0] := 0.0;
+                        #trajectory.profiles[0].brake.a[1] := 0.0;
+                        #trajectory.profiles[0].brake.a[2] := 0.0;
+                        #trajectory.profiles[0].brake.v[0] := 0.0;
+                        #trajectory.profiles[0].brake.v[1] := 0.0;
+                        #trajectory.profiles[0].brake.v[2] := 0.0;
+                        #trajectory.profiles[0].brake.p[0] := 0.0;
+                        #trajectory.profiles[0].brake.p[1] := 0.0;
+                        #trajectory.profiles[0].brake.p[2] := 0.0;
+                        #brakeDuration := 0.0;
+                        #mainP0 := #chainPos;
+                        #mainV0 := #chainVel;
+                        #mainA0 := #chainAcc;
+                    END_IF;
+
+                    // Main solve (fills t/j/a/v/p; seeds p[0]=mainP0).
+                    #profileResult := "ComputeProfile1Axis"(profile := #trajectory.profiles[0], p0 := #mainP0, v0 := #mainV0, a0 := #mainA0, pT := #input.targetPosition[0], vT := #input.targetVelocity[0], aT := #input.targetAcceleration[0], vMax := #input.maxVelocity[0], aMax := #input.maxAcceleration[0], jMax := #input.maxJerk[0]);
+                    IF #profileResult <> "dbRuckigConst".RESULT_WORKING AND #profileResult <> "dbRuckigConst".RESULT_FINISHED THEN
+                        #valid := false;
+                        #busy := false;
+                        #done := false;
+                        #error := true;
+                        #status := "dbRuckigConst".RESULT_ERR_TRAJ;
+                        #trajectory.isValid := false;
+                        RETURN;
+                    END_IF;
+
+                    // Duration = brake + sum of main phases.
+                    #mainDuration := 0.0;
+                    FOR #i := 0 TO 6 DO
+                        #mainDuration := #mainDuration + #trajectory.profiles[0].t[#i];
+                    END_FOR;
+                    #trajectory.duration := #brakeDuration + #mainDuration;
+                    #trajectory.independentMinDurations[0] := #trajectory.duration;
+                END_IF;
                 #trajectory.currentTime := 0.0;
                 #trajectory.isValid := true;
                 #prevInput := #input;
@@ -134,6 +257,14 @@ FUNCTION_BLOCK "RuckigOtg"
                 #status := "dbRuckigConst".RESULT_WORKING;
                 #output.workingOutput := true;
             END_IF;
+        END_REGION
+
+        REGION Chain update - pass_to_input (end of cycle)
+            // Next recompute starts from the LAST COMMANDED setpoint -> C2
+            // continuity on retarget (no jump).
+            #chainPos := #output.newPosition[0];
+            #chainVel := #output.newVelocity[0];
+            #chainAcc := #output.newAcceleration[0];
         END_REGION
     END_NETWORK
 END_FUNCTION_BLOCK

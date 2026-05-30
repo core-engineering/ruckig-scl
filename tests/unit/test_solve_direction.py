@@ -19,7 +19,7 @@ ruckig = pytest.importorskip("ruckig")
 
 @pytest.fixture
 def harness(make_harness):
-    return make_harness("ComputeProfile1Dof.s7dcl")
+    return make_harness("ComputeProfile1Axis.s7dcl")
 
 
 _FUNC_NAME = "ComputeProfile1Axis"

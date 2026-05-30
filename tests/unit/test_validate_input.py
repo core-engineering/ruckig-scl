@@ -85,16 +85,20 @@ def test_jmax_zero_returns_err(harness):
     assert _call(harness, inp) == RESULT_ERR_JMAX
 
 
-def test_current_vel_exceeds_vmax(harness):
+def test_current_vel_over_vmax_accepted_for_brake(harness):
+    """v0.2: an out-of-limits CURRENT velocity is admissible (Ruckig parity:
+    check_current_state_within_limits=false). The RuckigOtg FB brakes it back
+    into limits, so ValidateInput must NOT reject it."""
     inp = make_valid_input()
     inp["currentVelocity"] = [3.0, 0.0, 0.0, 0.0]  # > maxVelocity[0]=2.0
-    assert _call(harness, inp) == RESULT_ERR_CURR_VEL
+    assert _call(harness, inp) == RESULT_WORKING
 
 
-def test_current_acc_exceeds_amax(harness):
+def test_current_acc_over_amax_accepted_for_brake(harness):
+    """v0.2: an out-of-limits CURRENT acceleration is likewise admissible."""
     inp = make_valid_input()
     inp["currentAcceleration"] = [6.0, 0.0, 0.0, 0.0]  # > maxAcceleration[0]=5.0
-    assert _call(harness, inp) == RESULT_ERR_CURR_ACC
+    assert _call(harness, inp) == RESULT_WORKING
 
 
 def test_ndofs_zero_returns_err(harness):

@@ -4,10 +4,10 @@ ruckig = pytest.importorskip("ruckig")
 
 @pytest.fixture
 def harness(make_harness):
-    return make_harness("ComputeProfile1Dof.s7dcl")
+    return make_harness("ComputeProfile1Axis.s7dcl")
 
 
-# The FUNCTION inside ComputeProfile1Dof.s7dcl is named "ComputeProfile1Axis":
+# The FUNCTION inside ComputeProfile1Axis.s7dcl is named "ComputeProfile1Axis":
 # the plc-code SCL lexer mangles a return-variable whose name ends in "Dof"
 # (the trailing "of" is read as the OF keyword). The harness keys outputs on
 # the FUNCTION name, so the Word return is read via this name.
