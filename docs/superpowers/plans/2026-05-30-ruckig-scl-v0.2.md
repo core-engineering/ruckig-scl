@@ -9,9 +9,10 @@
 **Tech Stack:** Siemens SCL (`.s7dcl`, TIA Portal export format) tested via the `siemens-plc-tools` `plc-code` transpiler (SCL→Python) + pytest; numerical parity against the official Ruckig solver (PyPI `ruckig`, `parity` extra).
 
 **Reference (MIT):** Ruckig single-DoF source — consult during implementation:
-- Root solving: `https://raw.githubusercontent.com/pantor/ruckig/main/include/ruckig/roots.hpp`
-- Profile types: `https://raw.githubusercontent.com/pantor/ruckig/main/include/ruckig/position-first-step1.hpp`
-- Brake: `https://raw.githubusercontent.com/pantor/ruckig/main/include/ruckig/brake.hpp`
+- Root solving: `include/ruckig/roots.hpp`
+- Profile types (single-DoF Step 1 / Step 2, profile validation, time intervals): `include/ruckig/position.hpp`, `include/ruckig/block.hpp`, `include/ruckig/profile.hpp`
+- Brake: `include/ruckig/brake.hpp`
+- Base: `https://raw.githubusercontent.com/pantor/ruckig/main/` (e.g. `…/include/ruckig/position.hpp`). Fetch with `curl` at implementation time.
 
 **Oracle-driven TDD:** Where an exact closed-form equation is intricate (the profile-type FCs), the test asserts against expected values **generated from the installed `ruckig`** for specific inputs; the implementation ports the named Ruckig function and is correct when the oracle test passes. Infrastructure bricks below ship with complete code.
 
@@ -298,3 +299,79 @@ git commit -m "feat(solver): add SolveCubic FC (Cardano + degenerate fallbacks)"
 ```
 
 ---
+
+## Tasks 3–13 — remaining work
+
+Tasks 1–2 above are fully expanded (verifiable infrastructure). Tasks 3–13 are
+specified here at file/interface/test-strategy level; each is expanded into
+full TDD steps **just-in-time at dispatch**, when the implementer fetches the
+relevant Ruckig source and computes oracle values from the installed `ruckig`.
+This is deliberate: the profile-type equations are reference-dependent and must
+be ported against the live source + oracle rather than transcribed from memory.
+
+Each task follows the same 5-step rhythm (write failing test → verify fail →
+implement → verify pass → commit) and the conventions in the header.
+
+### Task 3: `SolveQuartic` FC
+- **Files:** `src/blocks/SolveQuartic.s7dcl`, `tests/unit/test_solve_quartic.py`.
+- **Approach:** depress to `x⁴+p·x²+q·x+r`; solve the **resolvent cubic** by calling `"SolveCubic"(...)`; form two quadratics; collect real roots into `roots:Array[0..3]` + `count`. Degrade to `SolveCubic` when `|a|<EPS`.
+- **Test (oracle = known polynomials):** `(x-1)(x-2)(x-3)(x-4)` → {1,2,3,4}; `(x²+1)(x-1)(x-2)` → {1,2}; a double-root quartic; `a=0` → cubic fallback. `abs=1e-6`.
+
+### Task 4: `IntegrateProfileStates` FC
+- **Files:** `src/blocks/IntegrateProfileStates.s7dcl`, `tests/unit/test_integrate_profile_states.py`.
+- **Interface:** `VAR_IN_OUT profile : _.typeProfile`, `VAR_INPUT p0,v0,a0 : LReal`. Fills `profile.a[0..7]/v/p` from `profile.t[0..6]/j[0..6]` + initial state, using the cubic integration already in v0.1 `ComputeFinalProfile` (`a[i+1]=a[i]+j[i]·dt`; `v[i+1]=v[i]+a[i]·dt+0.5·j[i]·dt²`; `p[i+1]=p[i]+v[i]·dt+0.5·a[i]·dt²+j[i]·dt³/6`), seeded with `(p0,v0,a0)` instead of `(p0,0,0)`.
+- **Test:** a hand-built 7-phase `t/j` from a known rest-to-rest profile reproduces v0.1's `p[7]`; a non-rest `(v0,a0)` case checked against forward Euler-cubic by hand.
+
+### Task 5: `CheckProfile` FC
+- **Files:** `src/blocks/CheckProfile.s7dcl`, `tests/unit/test_check_profile.py`.
+- **Interface:** `VAR_IN_OUT profile`, `VAR_INPUT p0,v0,a0,pT,vT,aT,vMax,aMax : LReal`, returns `Bool`. Calls `"IntegrateProfileStates"`, then valid ⇔ all `t[i] ≥ −EPS` AND `|profile.v[i]| ≤ vMax+EPS` AND `|profile.a[i]| ≤ aMax+EPS` (i=0..7) AND final `(p,v,a)[7]` ≈ `(pT,vT,aT)` within EPS.
+- **Test:** a valid known profile → true; a profile with a `t<0` → false; one exceeding `vMax` → false; one missing the target → false.
+
+### Task 6: `ComputeProfile1Dof` FC — the solver (oracle-driven, sub-tasked)
+- **Files:** `src/blocks/ComputeProfile1Dof.s7dcl`, `tests/unit/test_compute_profile_1dof.py`.
+- **Interface:** `VAR_IN_OUT profile`, `VAR_INPUT p0,v0,a0,pT,vT,aT,vMax,aMax,jMax : LReal`, returns `Word` (status). Fills `profile.t/j/direction/controlSigns`, calls `IntegrateProfileStates`, returns `WORKING` (or `ERR_SOLVER`).
+- **Structure (port from `position.hpp` + `block.hpp`):** for each jerk family (UDDU, UDUD) and each profile type (`ACC0_ACC1_VEL, ACC1_VEL, ACC0_VEL, VEL, ACC0_ACC1, ACC1, ACC0, NONE`), compute candidate phase times analytically (via `SolveCubic`/`SolveQuartic`), build `t/j`, validate with `"CheckProfile"`, keep the min-duration valid candidate.
+- **Sub-tasks at dispatch:** implement one profile type at a time (each its own commit), in Ruckig's order, each with an **oracle test** generated from the installed `ruckig` (`Ruckig(1); Trajectory(1); otg.calculate(inp, traj)` → compare `traj.duration` and `traj.at_time(t)` samples to the SCL profile via `StateAtTime`). Start with `ACC0_ACC1_VEL` (full trapezoid, non-rest) and `NONE`, then fill the rest until all v0.2 parity scenarios pass.
+- **Oracle test helper:** reuse `tests/parity/runner_ref.py` patterns to get reference `(duration, p/v/a samples)` for given boundary states.
+
+### Task 7: `ComputeBrakeProfile` FC
+- **Files:** `src/blocks/ComputeBrakeProfile.s7dcl`, `tests/unit/test_compute_brake_profile.py`.
+- **Interface:** `VAR_IN_OUT profile`, `VAR_INPUT v0,a0,vMax,aMax,jMax : LReal`, `VAR_OUTPUT pBrake,vBrake,aBrake : LReal` (post-brake state), returns `LReal` (brake duration). Port `brake.hpp`: at most 2 segments to bring `|a|≤aMax` then `|v|≤vMax`; fill `profile.brake.t/j` and integrate `brake.a/v/p`.
+- **Test (oracle):** out-of-limits `v0>vMax` → post-brake `|v|≤vMax+EPS`, `a→0`, duration matches a hand-computed brake; in-limits input → duration 0, state unchanged.
+
+### Task 8: extend `StateAtTime` for the brake prefix
+- **Files:** `src/blocks/StateAtTime.s7dcl` (modify), `tests/unit/test_state_at_time.py` (add cases).
+- **Approach:** if `profile.brake.t[0]+t[1] > 0`, evaluate the brake phases first (same cubic eval over `brake.t/j` from `brake.p/v/a[0]`); for `t` beyond the brake span, subtract the brake duration and evaluate the main profile as today.
+- **Test:** profile with a 1-segment brake → `t` inside brake returns brake state; `t` after brake returns main-profile state; existing no-brake tests still pass.
+
+### Task 9: confirm `ValidateInput` accepts non-zero target vel/acc
+- **Files:** `tests/unit/test_validate_input.py` (add cases). No SCL change expected.
+- **Test:** input with `targetVelocity[0]=1.0`, `targetAcceleration[0]=0.5` (finite, within limits) → `RESULT_WORKING`; a non-finite target vel → `RESULT_ERR_NON_FINITE`. If a check wrongly rejects, fix `ValidateInput.s7dcl` minimally.
+
+### Task 10: `RuckigOtg` FB — pass_to_input + brake + extended change detection
+- **Files:** `src/blocks/RuckigOtg.s7dcl` (modify), `tests/unit/test_ruckig_otg.py` (add cases).
+- **Approach:** per spec §7 — add VAR static `chainPos/chainVel/chainAcc`; seed from `input.current*` on `firstCall`; extend `recompute` to `Δ(targetVel,targetAcc)`; in recompute call `"ComputeBrakeProfile"` when out-of-limits then `"ComputeProfile1Dof"(p0:=chainPos,v0:=chainVel,a0:=chainAcc, pT:=…,vT:=…,aT:=…)`; `duration := brakeDuration + mainDuration`; after evaluate set `chain* := output.new*`.
+- **Tests:** (a) moving target (`targetVelocity[0]=0.5`, constant) reached and held at velocity; (b) retarget mid-motion → no setpoint jump between cycles (continuity ≤ `vMax·dt+EPS`); (c) all v0.1 FB tests still pass; (d) first-enable with `currentVelocity[0]>vMax` → brake then converge.
+
+### Task 11: remove superseded v0.1 FCs
+- **Files:** delete `src/blocks/ComputeMinDuration.s7dcl`, `src/blocks/ComputeFinalProfile.s7dcl`, `tests/unit/test_compute_min_duration.py`, `tests/unit/test_compute_final_profile.py`.
+- **Verify:** `uv run --no-sync pytest tests/unit -p no:cacheprovider -q` — remaining unit suite green (the rest-to-rest behaviour is now covered by `ComputeProfile1Dof` + the parity bench).
+
+### Task 12: +10 v0.2 parity scenarios
+- **Files:** `tests/parity/scenarios/v02_*.yaml` (10), no runner change (runners already pass `target_velocity/acceleration`; pass_to_input handled by `otg.update` on the ref side and the FB internally).
+- **Scenarios:** non-zero `target_velocity`/`target_acceleration` (approach-and-cruise), negative target velocity, non-rest via a short pre-move, brake-at-first-enable (`current_velocity>vMax`), plus 1–2 retarget-mid-motion (extend `test_parity.py` to optionally drive a time-varying target — a `target_position(t)` ramp — through both runners).
+- **Tolerance:** start `1e-9`; if root-solver numerics require, relax per-scenario to `1e-6` and log it (calibrate as in v0.1).
+
+### Task 13: docs, CHANGELOG, version, tag
+- **Files:** `README.md` (status → v0.2, features), `CHANGELOG.md` (0.2.0 entry), `examples/` (optional tracking example), bump block `S7_Version` to `0.2.0`.
+- **Verify:** full suite green (`uv run --no-sync pytest -p no:cacheprovider -q`); then tag `v0.2.0` after merge (same flow as v0.1).
+
+---
+
+## Self-Review notes
+
+- **Spec coverage:** §4 components → Tasks 2–11; §5 solver → Task 6; §6 roots → Tasks 1–3; §7 FB lifecycle → Task 10; §8 data model → unchanged (no task needed); §9 validation → per-task tests + Task 12; §10 out-of-scope → respected (no multi-axis/velocity-interface/asymmetric tasks); §11 risks → root tests (Tasks 2–3), tie-breaking + tolerance (Tasks 6, 12).
+- **Prerequisite:** Task 1 (plc-code `ACOS`) blocks Task 2's three-real-roots branch.
+- **Naming consistency:** FC names (`SolveCubic/SolveQuartic/IntegrateProfileStates/CheckProfile/ComputeProfile1Dof/ComputeBrakeProfile`) and the `(roots[0..3], count)` / `(valid Bool)` / `(status Word)` interfaces are used consistently across tasks.
+- **Honest deviation:** Tasks 3–13 are interface+test-strategy specs, expanded to full step code just-in-time at dispatch (reference-dependent equations + oracle). Tasks 1–2 are fully expanded.
+
