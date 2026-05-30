@@ -18,6 +18,12 @@
 
 **Conventions (from v0.1):** TIA Portal export format — `{ S7_* }` header block, `FUNCTION "Name" : Type` / `FUNCTION_BLOCK "Name"`, `{ S7_Language := "SCL" } NETWORK … END_NETWORK`, `#`-prefixed locals, MixedCase types (`LReal/Int/Bool/Word/DInt`), lowercase `true/false`, UDT refs as `_.typeName`, DB refs as `"dbRuckigConst".X`, REGION names free-form. Tests use the shared `make_harness` fixture in `tests/conftest.py` (search paths: `src/blocks`, `src/data-types`, `src/data-blocks`). Run a single test with `uv run --no-sync pytest <path> -p no:cacheprovider -q`.
 
+**plc-code transpiler quirks discovered during v0.2 (work around these):**
+1. **`END_IF`/`END_FOR` on their OWN line** — single-line `IF..THEN..END_IF;` mis-parses.
+2. **Identifier ending in `of`/`Dof`** — the lexer reads the trailing `of` as the `OF` keyword and corrupts the statement. The solver FUNCTION is named **`ComputeProfile1Axis`** (file stays `ComputeProfile1Dof.s7dcl`; harness keys `get_output("ComputeProfile1Axis")`). Avoid trailing `of` in new identifiers. (Real plc-code bug → candidate upstream fix: lexer must not split `OF` out of a longer identifier.)
+3. **Division by a parenthesised product** `/ (a*b)` transpiles wrong — precompute the denominator into a scalar VAR_TEMP (`den := a*b;`) and divide by `#den`. Stage huge numerators in a `#num` temp too. The acc0_acc1 / quartic families have large denominators — budget denom temps up front.
+4. **Bool-returning FC with VAR_IN_OUT works**: `#ok := "CheckProfile"(profile := #profile, ...);` → mutates the VAR_IN_OUT profile in place and returns the Bool keyed by the FC name. Reuse this pattern.
+
 ---
 
 ## File Structure
