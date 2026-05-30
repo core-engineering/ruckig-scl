@@ -330,7 +330,54 @@ implement → verify pass → commit) and the conventions in the header.
 ### Task 6: `ComputeProfile1Dof` FC — the solver (oracle-driven, sub-tasked)
 - **Files:** `src/blocks/ComputeProfile1Dof.s7dcl`, `tests/unit/test_compute_profile_1dof.py`.
 - **Interface:** `VAR_IN_OUT profile`, `VAR_INPUT p0,v0,a0,pT,vT,aT,vMax,aMax,jMax : LReal`, returns `Word` (status). Fills `profile.t/j/direction/controlSigns`, calls `IntegrateProfileStates`, returns `WORKING` (or `ERR_SOLVER`).
-- **Structure (port from `position.hpp` + `block.hpp`):** for each jerk family (UDDU, UDUD) and each profile type (`ACC0_ACC1_VEL, ACC1_VEL, ACC0_VEL, VEL, ACC0_ACC1, ACC1, ACC0, NONE`), compute candidate phase times analytically (via `SolveCubic`/`SolveQuartic`), build `t/j`, validate with `"CheckProfile"`, keep the min-duration valid candidate.
+- **Structure:** for each jerk family (UDDU, UDUD) and each profile type (`ACC0_ACC1_VEL, ACC1_VEL, ACC0_VEL, VEL, ACC0_ACC1, ACC1, ACC0, NONE`), compute candidate phase times analytically (via `SolveCubic`/`SolveQuartic`), build `t/j`, validate with `"CheckProfile"`, keep the min-duration valid candidate.
+
+#### Reference source (CONFIRMED locations — the plan's earlier `.hpp` guess was wrong)
+The candidate-time **equations** live in the repo's `src/ruckig/*.cpp` (the `.hpp` files only declare). Fetch at dispatch:
+- `https://raw.githubusercontent.com/pantor/ruckig/master/src/ruckig/position_third_step1.cpp` (566 lines — the Step-1 single-DoF solver, the file we port here)
+- `https://raw.githubusercontent.com/pantor/ruckig/master/include/ruckig/profile.hpp` (531 lines — `check<ControlSigns, ReachedLimits>` template + `ControlSigns`/`ReachedLimits` enums; we do NOT port this — our `CheckProfile` FC already does the equivalent validation-by-integration)
+- `https://raw.githubusercontent.com/pantor/ruckig/master/src/ruckig/brake.cpp` (131 lines — for Task 7)
+- These headers are also bundled at `/.venv/lib/python3.12/site-packages/include/ruckig/` in this project.
+
+#### Key porting facts (reverse-engineered from position_third_step1.cpp)
+- **Symmetric limits** (our v0.2 assumption): `vMin=-vMax`, `aMin=-aMax`, `jMin=-jMax`. Ruckig keeps them separate; substitute the symmetric values when porting.
+- **Precomputed terms** the formulas use (compute once as VAR_TEMP): `pd = pT - p0`; `v0_v0=v0*v0`; `vf_vf=vT*vT`; `a0_a0=a0*a0`, `a0_p3=a0³`, `a0_p4=a0⁴`; `af_af=aT*aT`, `af_p3=aT³`, `af_p4=aT⁴`; `jMax_jMax=jMax*jMax`. (Ruckig names target `vf/af` = our `vT/aT`.)
+- **`time_*` methods** each set `profile.t[0..6]` then call `check<UDDU|UDUD, TYPE>`. In our port: set `#profile.t[0..6]`, set the 7 `#profile.j[]` for the family (UDDU = `+j,0,-j,0,-j,0,+j`; UDUD = `+j,0,-j,0,+j,0,-j`, scaled by direction sign), set `#profile.controlSigns`, then call `"CheckProfile"(...)`; if TRUE compute `duration = Σ t`, keep if `< bestDuration`.
+- **Direction / sign:** Ruckig's `get_profile` tries the profile with `jMax` and also the mirrored case. Simplest correct port: run the whole enumeration twice — once with the inputs as-is (`+jMax` families) and once on the **mirrored problem** (`p0,v0,a0,pT,vT,aT → -p0,-v0,-a0,-pT,-vT,-aT` with the same vMax/aMax/jMax), and negate the resulting `t`-profile's `j[]`/states back. Equivalstly track `direction` and flip signs. VERIFY against the oracle which sign convention reproduces Ruckig.
+- **Selection:** keep the **minimum-duration** candidate that `CheckProfile` accepts. Store best into a scratch `Array[0..6]` (`bestT`) + `bestSigns`/`bestDuration`; at the end write `bestT`→`#profile.t`, set `j[]` from `bestSigns`, call `"IntegrateProfileStates"`, return `WORKING`. If none valid → `ERR_SOLVER`.
+
+#### `time_all_vel` (UDDU velocity-reaching family) — verbatim formulas to port FIRST
+From position_third_step1.cpp lines 25–85. Four candidate types, tried in order; first that `check`s is added. Port each as a REGION that fills `t[0..6]` then calls `CheckProfile`:
+
+ACC0_ACC1_VEL:
+```
+t0 = (-a0 + aMax)/jMax
+t1 = (a0_a0/2 - aMax*aMax - jMax*(v0 - vMax))/(aMax*jMax)
+t2 = aMax/jMax
+t3 = (3*(a0_p4*aMin - af_p4*aMax) + 8*aMax*aMin*(af_p3 - a0_p3 + 3*jMax*(a0*v0 - af*vf)) + 6*a0_a0*aMin*(aMax*aMax - 2*jMax*v0) - 6*af_af*aMax*(aMin*aMin - 2*jMax*vf) - 12*jMax*(aMax*aMin*(aMax*(v0 + vMax) - aMin*(vf + vMax) - 2*jMax*pd) + (aMin - aMax)*jMax*vMax*vMax + jMax*(aMax*vf_vf - aMin*v0_v0)))/(24*aMax*aMin*jMax_jMax*vMax)
+t4 = -aMin/jMax
+t5 = -(af_af/2 - aMin*aMin - jMax*(vf - vMax))/(aMin*jMax)
+t6 = t4 + af/jMax
+```
+ACC1_VEL (t_acc0 = sqrt(a0_a0/(2*jMax_jMax) + (vMax - v0)/jMax)):
+```
+t0 = t_acc0 - a0/jMax ; t1 = 0 ; t2 = t_acc0
+t3 = -(3*af_p4 - 8*aMin*(af_p3 - a0_p3) - 24*aMin*jMax*(a0*v0 - af*vf) + 6*af_af*(aMin*aMin - 2*jMax*vf) - 12*jMax*(2*aMin*jMax*pd + aMin*aMin*(vf + vMax) + jMax*(vMax*vMax - vf_vf) + aMin*t_acc0*(a0_a0 - 2*jMax*(v0 + vMax))))/(24*aMin*jMax_jMax*vMax)
+t4 = -aMin/jMax ; t5 = -(af_af/2 - aMin*aMin + jMax*(vMax - vf))/(aMin*jMax) ; t6 = t4 + af/jMax
+```
+ACC0_VEL (t_acc1 = sqrt(af_af/(2*jMax_jMax) + (vMax - vf)/jMax)):
+```
+t0 = (-a0 + aMax)/jMax ; t1 = (a0_a0/2 - aMax*aMax - jMax*(v0 - vMax))/(aMax*jMax) ; t2 = aMax/jMax
+t3 = (3*a0_p4 + 8*aMax*(af_p3 - a0_p3) + 24*aMax*jMax*(a0*v0 - af*vf) + 6*a0_a0*(aMax*aMax - 2*jMax*v0) - 12*jMax*(-2*aMax*jMax*pd + aMax*aMax*(v0 + vMax) + jMax*(vMax*vMax - v0_v0) + aMax*t_acc1*(-af_af + 2*(vf + vMax)*jMax)))/(24*aMax*jMax_jMax*vMax)
+t4 = t_acc1 ; t5 = 0 ; t6 = t_acc1 + af/jMax
+```
+VEL (uses both t_acc0, t_acc1):
+```
+t0 = t_acc0 - a0/jMax ; t1 = 0 ; t2 = t_acc0
+t3 = (af_p3 - a0_p3)/(3*jMax_jMax*vMax) + (a0*v0 - af*vf + (af_af*t_acc1 + a0_a0*t_acc0)/2)/(jMax*vMax) - (v0/vMax + 1.0)*t_acc0 - (vf/vMax + 1.0)*t_acc1 + pd/vMax
+t4 = t_acc1 ; t5 = 0 ; t6 = t_acc1 + af/jMax
+```
+The remaining families — `time_acc0_acc1` (no v-plateau; lines 87–129), `time_all_none_acc0_acc1` (the hard one: quartic via `SolveQuartic`; lines 130–286), and the UDUD mirror — are ported in later sub-tasks, fetched verbatim from the same file at dispatch.
 - **Sub-tasks at dispatch:** implement one profile type at a time (each its own commit), in Ruckig's order, each with an **oracle test** generated from the installed `ruckig` (`Ruckig(1); Trajectory(1); otg.calculate(inp, traj)` → compare `traj.duration` and `traj.at_time(t)` samples to the SCL profile via `StateAtTime`). Start with `ACC0_ACC1_VEL` (full trapezoid, non-rest) and `NONE`, then fill the rest until all v0.2 parity scenarios pass.
 - **Oracle test helper:** reuse `tests/parity/runner_ref.py` patterns to get reference `(duration, p/v/a samples)` for given boundary states.
 
