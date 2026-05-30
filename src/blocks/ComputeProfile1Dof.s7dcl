@@ -1,0 +1,269 @@
+{
+    S7_Author := "Martin C";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.2.0"
+}
+FUNCTION "ComputeProfile1Axis" : Word
+    VAR_IN_OUT
+        profile : _.typeProfile;
+    END_VAR
+    VAR_INPUT
+        p0   : LReal;
+        v0   : LReal;
+        a0   : LReal;
+        pT   : LReal;
+        vT   : LReal;
+        aT   : LReal;
+        vMax : LReal;
+        aMax : LReal;
+        jMax : LReal;
+    END_VAR
+    VAR_TEMP
+        // symmetric limits
+        vMin : LReal;
+        aMin : LReal;
+        // precompute
+        pd        : LReal;
+        v0_v0     : LReal;
+        vf_vf     : LReal;
+        a0_a0     : LReal;
+        a0_p3     : LReal;
+        a0_p4     : LReal;
+        af_af     : LReal;
+        af_p3     : LReal;
+        af_p4     : LReal;
+        jMax_jMax : LReal;
+        // candidate scratch
+        t_acc0   : LReal;
+        t_acc1   : LReal;
+        radicand : LReal;
+        skip     : Bool;
+        ok       : Bool;
+        dur      : LReal;
+        i        : DInt;
+        // best candidate bookkeeping
+        bestDuration : LReal;
+        found        : Bool;
+        bestT        : Array[0..6] of LReal;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      ComputeProfile1Axis (file ComputeProfile1Dof.s7dcl)
+            // Function:   Single-DoF profile solver. v0.2 partial port of
+            //             Ruckig PositionThirdOrderStep1. Handles the
+            //             velocity-reaching family (time_all_vel: tries
+            //             ACC0_ACC1_VEL, ACC1_VEL, ACC0_VEL, VEL). Keeps the
+            //             minimum-duration candidate accepted by CheckProfile.
+            // Note:       FUNCTION identifier avoids a trailing "Dof": the
+            //             plc-code SCL lexer mis-tokenises the trailing "of"
+            //             as the OF keyword, splitting the return-var name
+            //             into "...D OF" and producing invalid Python.
+            // Family:     Ruckig
+            // Author:     Martin C
+            // Ref:        ruckig/src/ruckig/position_third_step1.cpp
+            //==========================================================
+        END_REGION
+
+        REGION Symmetric limits and precompute
+            #vMin := -#vMax;
+            #aMin := -#aMax;
+
+            #pd        := #pT - #p0;
+            #v0_v0     := #v0 * #v0;
+            #vf_vf     := #vT * #vT;
+            #a0_a0     := #a0 * #a0;
+            #a0_p3     := #a0 * #a0_a0;
+            #a0_p4     := #a0_a0 * #a0_a0;
+            #af_af     := #aT * #aT;
+            #af_p3     := #aT * #af_af;
+            #af_p4     := #af_af * #af_af;
+            #jMax_jMax := #jMax * #jMax;
+
+            #bestDuration := 1.0E30;
+            #found := false;
+        END_REGION
+
+        REGION UDDU jerk pattern and signs
+            #profile.j[0] := #jMax;
+            #profile.j[1] := 0.0;
+            #profile.j[2] := -#jMax;
+            #profile.j[3] := 0.0;
+            #profile.j[4] := -#jMax;
+            #profile.j[5] := 0.0;
+            #profile.j[6] := #jMax;
+            #profile.direction := 1;
+            #profile.controlSigns := 0;
+        END_REGION
+
+        REGION Candidate ACC0_ACC1_VEL
+            #profile.t[0] := (-#a0 + #aMax) / #jMax;
+            #profile.t[1] := (#a0_a0 / 2.0 - #aMax * #aMax - #jMax * (#v0 - #vMax)) / (#aMax * #jMax);
+            #profile.t[2] := #aMax / #jMax;
+            #profile.t[3] := (3.0 * (#a0_p4 * #aMin - #af_p4 * #aMax)
+                + 8.0 * #aMax * #aMin * (#af_p3 - #a0_p3 + 3.0 * #jMax * (#a0 * #v0 - #aT * #vT))
+                + 6.0 * #a0_a0 * #aMin * (#aMax * #aMax - 2.0 * #jMax * #v0)
+                - 6.0 * #af_af * #aMax * (#aMin * #aMin - 2.0 * #jMax * #vT)
+                - 12.0 * #jMax * (#aMax * #aMin * (#aMax * (#v0 + #vMax) - #aMin * (#vT + #vMax) - 2.0 * #jMax * #pd)
+                + (#aMin - #aMax) * #jMax * #vMax * #vMax + #jMax * (#aMax * #vf_vf - #aMin * #v0_v0)))
+                / (24.0 * #aMax * #aMin * #jMax_jMax * #vMax);
+            #profile.t[4] := -#aMin / #jMax;
+            #profile.t[5] := -(#af_af / 2.0 - #aMin * #aMin - #jMax * (#vT - #vMax)) / (#aMin * #jMax);
+            #profile.t[6] := #profile.t[4] + #aT / #jMax;
+
+            #ok := "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                pT := #pT, vT := #vT, aT := #aT, vMax := #vMax, aMax := #aMax);
+            IF #ok THEN
+                #dur := 0.0;
+                FOR #i := 0 TO 6 DO
+                    #dur := #dur + #profile.t[#i];
+                END_FOR;
+                IF #dur < #bestDuration THEN
+                    #bestDuration := #dur;
+                    #found := true;
+                    FOR #i := 0 TO 6 DO
+                        #bestT[#i] := #profile.t[#i];
+                    END_FOR;
+                END_IF;
+            END_IF;
+        END_REGION
+
+        REGION Candidate ACC1_VEL
+            #radicand := #a0_a0 / (2.0 * #jMax_jMax) + (#vMax - #v0) / #jMax;
+            IF #radicand >= 0.0 THEN
+                #t_acc0 := SQRT(#radicand);
+                #profile.t[0] := #t_acc0 - #a0 / #jMax;
+                #profile.t[1] := 0.0;
+                #profile.t[2] := #t_acc0;
+                #profile.t[3] := -(3.0 * #af_p4 - 8.0 * #aMin * (#af_p3 - #a0_p3)
+                    - 24.0 * #aMin * #jMax * (#a0 * #v0 - #aT * #vT)
+                    + 6.0 * #af_af * (#aMin * #aMin - 2.0 * #jMax * #vT)
+                    - 12.0 * #jMax * (2.0 * #aMin * #jMax * #pd + #aMin * #aMin * (#vT + #vMax)
+                    + #jMax * (#vMax * #vMax - #vf_vf)
+                    + #aMin * #t_acc0 * (#a0_a0 - 2.0 * #jMax * (#v0 + #vMax))))
+                    / (24.0 * #aMin * #jMax_jMax * #vMax);
+                #profile.t[4] := -#aMin / #jMax;
+                #profile.t[5] := -(#af_af / 2.0 - #aMin * #aMin + #jMax * (#vMax - #vT)) / (#aMin * #jMax);
+                #profile.t[6] := #profile.t[4] + #aT / #jMax;
+
+                #ok := "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                    pT := #pT, vT := #vT, aT := #aT, vMax := #vMax, aMax := #aMax);
+                IF #ok THEN
+                    #dur := 0.0;
+                    FOR #i := 0 TO 6 DO
+                        #dur := #dur + #profile.t[#i];
+                    END_FOR;
+                    IF #dur < #bestDuration THEN
+                        #bestDuration := #dur;
+                        #found := true;
+                        FOR #i := 0 TO 6 DO
+                            #bestT[#i] := #profile.t[#i];
+                        END_FOR;
+                    END_IF;
+                END_IF;
+            END_IF;
+        END_REGION
+
+        REGION Candidate ACC0_VEL
+            #radicand := #af_af / (2.0 * #jMax_jMax) + (#vMax - #vT) / #jMax;
+            IF #radicand >= 0.0 THEN
+                #t_acc1 := SQRT(#radicand);
+                #profile.t[0] := (-#a0 + #aMax) / #jMax;
+                #profile.t[1] := (#a0_a0 / 2.0 - #aMax * #aMax - #jMax * (#v0 - #vMax)) / (#aMax * #jMax);
+                #profile.t[2] := #aMax / #jMax;
+                #profile.t[3] := (3.0 * #a0_p4 + 8.0 * #aMax * (#af_p3 - #a0_p3)
+                    + 24.0 * #aMax * #jMax * (#a0 * #v0 - #aT * #vT)
+                    + 6.0 * #a0_a0 * (#aMax * #aMax - 2.0 * #jMax * #v0)
+                    - 12.0 * #jMax * (-2.0 * #aMax * #jMax * #pd + #aMax * #aMax * (#v0 + #vMax)
+                    + #jMax * (#vMax * #vMax - #v0_v0)
+                    + #aMax * #t_acc1 * (-#af_af + 2.0 * (#vT + #vMax) * #jMax)))
+                    / (24.0 * #aMax * #jMax_jMax * #vMax);
+                #profile.t[4] := #t_acc1;
+                #profile.t[5] := 0.0;
+                #profile.t[6] := #t_acc1 + #aT / #jMax;
+
+                #ok := "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                    pT := #pT, vT := #vT, aT := #aT, vMax := #vMax, aMax := #aMax);
+                IF #ok THEN
+                    #dur := 0.0;
+                    FOR #i := 0 TO 6 DO
+                        #dur := #dur + #profile.t[#i];
+                    END_FOR;
+                    IF #dur < #bestDuration THEN
+                        #bestDuration := #dur;
+                        #found := true;
+                        FOR #i := 0 TO 6 DO
+                            #bestT[#i] := #profile.t[#i];
+                        END_FOR;
+                    END_IF;
+                END_IF;
+            END_IF;
+        END_REGION
+
+        REGION Candidate VEL
+            #skip := false;
+            #radicand := #a0_a0 / (2.0 * #jMax_jMax) + (#vMax - #v0) / #jMax;
+            IF #radicand < 0.0 THEN
+                #skip := true;
+            ELSE
+                #t_acc0 := SQRT(#radicand);
+            END_IF;
+            #radicand := #af_af / (2.0 * #jMax_jMax) + (#vMax - #vT) / #jMax;
+            IF #radicand < 0.0 THEN
+                #skip := true;
+            ELSE
+                #t_acc1 := SQRT(#radicand);
+            END_IF;
+            IF NOT #skip THEN
+                #profile.t[0] := #t_acc0 - #a0 / #jMax;
+                #profile.t[1] := 0.0;
+                #profile.t[2] := #t_acc0;
+                #profile.t[3] := (#af_p3 - #a0_p3) / (3.0 * #jMax_jMax * #vMax)
+                    + (#a0 * #v0 - #aT * #vT + (#af_af * #t_acc1 + #a0_a0 * #t_acc0) / 2.0) / (#jMax * #vMax)
+                    - (#v0 / #vMax + 1.0) * #t_acc0 - (#vT / #vMax + 1.0) * #t_acc1 + #pd / #vMax;
+                #profile.t[4] := #t_acc1;
+                #profile.t[5] := 0.0;
+                #profile.t[6] := #t_acc1 + #aT / #jMax;
+
+                #ok := "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                    pT := #pT, vT := #vT, aT := #aT, vMax := #vMax, aMax := #aMax);
+                IF #ok THEN
+                    #dur := 0.0;
+                    FOR #i := 0 TO 6 DO
+                        #dur := #dur + #profile.t[#i];
+                    END_FOR;
+                    IF #dur < #bestDuration THEN
+                        #bestDuration := #dur;
+                        #found := true;
+                        FOR #i := 0 TO 6 DO
+                            #bestT[#i] := #profile.t[#i];
+                        END_FOR;
+                    END_IF;
+                END_IF;
+            END_IF;
+        END_REGION
+
+        REGION Finalise winner or fail
+            IF #found THEN
+                FOR #i := 0 TO 6 DO
+                    #profile.t[#i] := #bestT[#i];
+                END_FOR;
+                #profile.j[0] := #jMax;
+                #profile.j[1] := 0.0;
+                #profile.j[2] := -#jMax;
+                #profile.j[3] := 0.0;
+                #profile.j[4] := -#jMax;
+                #profile.j[5] := 0.0;
+                #profile.j[6] := #jMax;
+                "IntegrateProfileStates"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0);
+                #ComputeProfile1Axis := "dbRuckigConst".RESULT_WORKING;
+            ELSE
+                #ComputeProfile1Axis := "dbRuckigConst".RESULT_ERR_SOLVER;
+            END_IF;
+        END_REGION
+    END_NETWORK
+END_FUNCTION
