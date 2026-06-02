@@ -141,6 +141,22 @@ def test_acc1_vel(harness, v0, a0, vT, aT, pd, k):
     _assert_timed_parity(harness, *args, _t_min(*args) * k)
 
 
+# T8: ACC0_VEL — reaches +aMax (accel plateau) and the velocity plateau, not
+# -aMax. Structure (1,1,1,1,1,0,1) with t[5]=0. (v0,a0,vT,aT,pd) with p0=0.
+_ACC0_VEL_CASES = [
+    (-1.5, 2.0, 0.5, 0.0, 1.0),
+    (-1.5, 2.0, 0.5, -1.0, 1.0),
+    (-1.5, 2.0, 0.5, 1.0, 1.0),
+    (-1.5, 0.0, 0.5, 0.0, 1.0),
+]
+
+
+@pytest.mark.parametrize("v0,a0,vT,aT,pd", _ACC0_VEL_CASES)
+def test_acc0_vel(harness, v0, a0, vT, aT, pd):
+    args = (0.0, v0, a0, pd, vT, aT)
+    _assert_timed_parity(harness, *args, _t_min(*args) * 1.15)
+
+
 def test_oracle_timed_reaches_target():
     """The stretched trajectory still reaches the final state at tf."""
     args = (0.0, 0.5, 0.0, 1.0, 0.5, 0.0)
