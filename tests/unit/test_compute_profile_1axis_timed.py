@@ -75,14 +75,54 @@ def _run_timed(harness, p0, v0, a0, pT, vT, aT, tf, vM=_VMAX, aM=_AMAX, jM=_JMAX
     return harness.get_output(_FUNC), harness.get_var("profile")
 
 
-def test_dispatch_stubs_return_err_solver(harness):
-    """Phase 1 (T4): the orchestrator + 8 family stubs compile and wire up; with
-    every family a no-op stub, nothing is found -> RESULT_ERR_SOLVER. Family
-    implementations (T6+) flip these to RESULT_WORKING."""
-    args = (0.0, 0.0, 0.0, 1.0, 0.0, 0.0)
-    tf = _t_min(*args) * 1.5
-    st, _ = _run_timed(harness, *args, tf)
-    assert st == 0x8602  # RESULT_ERR_SOLVER (no family implemented yet)
+
+
+def _integrate_at(prof, p0, v0, a0, s):
+    """Sample the SCL profile (its t[]/j[]) at absolute time s by walking the
+    phases — frame-independent, so it sidesteps Ruckig's canonical profile frame."""
+    a, v, p, elapsed = a0, v0, p0, 0.0
+    for i in range(7):
+        dt = prof.t[i]; j = prof.j[i]
+        if s <= elapsed + dt + 1e-12:
+            d = s - elapsed
+            return (p + v * d + 0.5 * a * d * d + j * d ** 3 / 6.0,
+                    v + a * d + 0.5 * j * d * d, a + j * d)
+        p = p + v * dt + 0.5 * a * dt * dt + j * dt ** 3 / 6.0
+        v = v + a * dt + 0.5 * j * dt * dt
+        a = a + j * dt
+        elapsed += dt
+    return (p, v, a)
+
+
+def _assert_timed_parity(harness, p0, v0, a0, pT, vT, aT, tf, abs_tol=1e-6):
+    """step2 parity: SCL profile reaches the state at exactly tf and matches the
+    Ruckig (minimum_duration) trajectory at sampled times."""
+    st, prof = _run_timed(harness, p0, v0, a0, pT, vT, aT, tf)
+    assert st == 0x7000, f"expected WORKING, got {hex(st)}"
+    assert sum(prof.t[i] for i in range(7)) == pytest.approx(tf, abs=1e-7)
+    tr = _oracle_timed(p0, v0, a0, pT, vT, aT, tf)
+    for frac in (0.2, 0.4, 0.6, 0.8, 1.0):
+        s = tf * frac
+        po, vo, ao = (x[0] for x in tr.at_time(s))
+        ps, vs, as_ = _integrate_at(prof, p0, v0, a0, s)
+        assert ps == pytest.approx(po, abs=abs_tol), f"p at {s}"
+        assert vs == pytest.approx(vo, abs=abs_tol), f"v at {s}"
+        assert as_ == pytest.approx(ao, abs=abs_tol), f"a at {s}"
+
+
+@pytest.mark.parametrize("k", [1.05, 1.1, 1.3])
+def test_acc0_acc1_vel_stretched(harness, k):
+    """T6: large rest-to-rest move, stretched to tf > t_min -> ACC0_ACC1_VEL
+    (reaches vMax and both accel limits; the velocity plateau absorbs the slack)."""
+    args = (0.0, 0.0, 0.0, 5.0, 0.0, 0.0)
+    _assert_timed_parity(harness, *args, _t_min(*args) * k)
+
+
+def test_acc0_acc1_vel_negative_direction(harness):
+    """T6: net-negative move (up_first=False) -> the reversed dispatch pass.
+    Exercises the mirror limits in the family + direction selection."""
+    args = (0.0, 0.0, 0.0, -5.0, 0.0, 0.0)
+    _assert_timed_parity(harness, *args, _t_min(*args) * 1.1)
 
 
 def test_oracle_timed_reaches_target():
