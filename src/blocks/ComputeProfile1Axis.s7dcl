@@ -3,7 +3,7 @@
     S7_EditorMode := "SCL";
     S7_Family := "Ruckig";
     S7_Optimized := "TRUE";
-    S7_Version := "0.2.0"
+    S7_Version := "0.2.2"
 }
 FUNCTION "ComputeProfile1Axis" : Word
     VAR_IN_OUT
@@ -43,8 +43,11 @@ FUNCTION "ComputeProfile1Axis" : Word
             //             keeps the global minimum-duration candidate accepted
             //             by CheckProfile. Mirror pass = Ruckig's negative-jerk
             //             direction (no separate UDUD equations in step1).
-            //             Not yet ported: zero-limits special case and the
-            //             two-step fallbacks (time_*_two_step).
+            //             If no family profile is feasible, falls back to the
+            //             two/three-step short-move profiles via "SolveTwoStep"
+            //             (Ruckig's time_*_two_step). Zero-limits special case
+            //             stays out of scope (unreachable: ValidateInput rejects
+            //             non-positive limits upstream).
             // Note:       FUNCTION identifier avoids a trailing "Dof": the
             //             plc-code SCL lexer mis-tokenises the trailing "of"
             //             as the OF keyword, splitting the return-var name
@@ -77,6 +80,22 @@ FUNCTION "ComputeProfile1Axis" : Word
                 bestDuration := #bestDuration, found := #found, bestSjMax := #bestSjMax,
                 p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
                 svMax := -#vMax, svMin := #vMax, saMax := -#aMax, saMin := #aMax, sjMax := -#jMax);
+        END_REGION
+
+        REGION Two-step fallbacks (only if no family profile found)
+            // Ruckig get_profile runs the two/three-step fallbacks only when the
+            // main families yielded nothing (`if (profile == start)`). These
+            // cover short moves too small to reach any limit. Same mirror pair.
+            IF NOT #found THEN
+                "SolveTwoStep"(profile := #profile, bestT := #bestT,
+                    bestDuration := #bestDuration, found := #found, bestSjMax := #bestSjMax,
+                    p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
+                    svMax := #vMax, svMin := -#vMax, saMax := #aMax, saMin := -#aMax, sjMax := #jMax);
+                "SolveTwoStep"(profile := #profile, bestT := #bestT,
+                    bestDuration := #bestDuration, found := #found, bestSjMax := #bestSjMax,
+                    p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
+                    svMax := -#vMax, svMin := #vMax, saMax := -#aMax, saMin := #aMax, sjMax := -#jMax);
+            END_IF;
         END_REGION
 
         REGION Finalise winner or fail
