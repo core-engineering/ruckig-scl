@@ -24,17 +24,154 @@ FUNCTION "SolveTimedAcc0Acc1" : Void
         sjMax : LReal;
         tf    : LReal;
     END_VAR
+    VAR_TEMP
+        vMaxMag : LReal;
+        aMaxMag : LReal;
+        jMaxMag : LReal;
+        pd     : LReal;
+        vd     : LReal;
+        vd_vd  : LReal;
+        ad     : LReal;
+        a0_a0  : LReal;
+        af_af  : LReal;
+        a0_p3  : LReal;
+        af_p3  : LReal;
+        tf_tf  : LReal;
+        g1     : LReal;
+        g2     : LReal;
+        hc     : LReal;
+        h1     : LReal;
+        h2     : LReal;
+        jf     : LReal;
+        big1   : LReal;
+        big2   : LReal;
+        big3   : LReal;
+        den    : LReal;
+        num    : LReal;
+        ok     : Bool;
+    END_VAR
 
     { S7_Language := "SCL" }
     NETWORK
-        REGION Stub - implemented in a later v0.3 task
-            // step2 family time_Acc0Acc1 (re-time to tf). Ruckig
-            // position_third_step2.cpp. First-valid-wins: skip if already found.
-            // TODO(v0.3): port the UDDU[/UDUD] closed-form / quartic candidates,
-            // set profile.t/j, validate with "CheckProfile"(... tf := #tf), and
-            // set #found := true on success.
+        REGION Block header
+            //==========================================================
+            // Title:      SolveTimedAcc0Acc1
+            // Function:   step2 family time_acc0_acc1: re-time to tf a profile
+            //             reaching BOTH accel limits but NO velocity plateau
+            //             (t[3]=0). Unlike the other families the jerk jf is a
+            //             free unknown (<= jMax), solved to land on tf. Special
+            //             branch a0=af=0, then the UDDU general branch (Solution 1
+            //             is commented out in Ruckig). Port of
+            //             position_third_step2.cpp l.490-542. CheckProfile does
+            //             not bound jerk, so |jf|<=jMax is guarded here.
+            // Family:     Ruckig
+            // Author:     Martin C
+            //==========================================================
+        END_REGION
+
+        REGION Skip if already solved
             IF #found THEN
                 RETURN;
+            END_IF;
+        END_REGION
+
+        REGION Precompute
+            #vMaxMag := ABS(#svMax);
+            #aMaxMag := ABS(#saMax);
+            #jMaxMag := ABS(#sjMax);
+            #pd    := #pT - #p0;
+            #vd    := #vT - #v0;
+            #vd_vd := #vd * #vd;
+            #ad    := #aT - #a0;
+            #a0_a0 := #a0 * #a0;
+            #af_af := #aT * #aT;
+            #a0_p3 := #a0 * #a0_a0;
+            #af_p3 := #aT * #af_af;
+            #tf_tf := #tf * #tf;
+            #g1    := -#pd + #tf * #v0;
+            #g2    := -2.0 * #pd + #tf * (#v0 + #vT);
+            // common factor (Ruckig h1 of the a0=af=0 case / denominator base)
+            #hc := 2.0 * #saMin * #g1 + #vd_vd + #saMax * (2.0 * #pd + #saMin * #tf_tf - 2.0 * #tf * #vT);
+        END_REGION
+
+        REGION a0 = af = 0 special branch
+            IF ABS(#a0) < 1.0E-12 AND ABS(#aT) < 1.0E-12 AND ABS(#hc) > 1.0E-12 THEN
+                #h2 := (#saMax - #saMin) * (-#saMin * #vd + #saMax * (#saMin * #tf - #vd));
+                #jf := #h2 / #hc;
+                IF ABS(#jf) > 1.0E-12 AND ABS(#jf) <= #jMaxMag + 1.0E-6 AND ABS(#h2) > 1.0E-12 THEN
+                    #profile.t[0] := #saMax / #jf;
+                    #num := -2.0 * #saMax * #hc + #saMin * #saMin * #g2;
+                    #profile.t[1] := #num / #h2;
+                    #profile.t[2] := #profile.t[0];
+                    #profile.t[3] := 0.0;
+                    #profile.t[4] := -#saMin / #jf;
+                    #profile.t[5] := #tf - (2.0 * #profile.t[0] + #profile.t[1] + 2.0 * #profile.t[4]);
+                    #profile.t[6] := #profile.t[4];
+                    #profile.j[0] := #jf;
+                    #profile.j[1] := 0.0;
+                    #profile.j[2] := -#jf;
+                    #profile.j[3] := 0.0;
+                    #profile.j[4] := -#jf;
+                    #profile.j[5] := 0.0;
+                    #profile.j[6] := #jf;
+                    #profile.direction := 1;
+                    #profile.controlSigns := 0;
+                    #ok := "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                        pT := #pT, vT := #vT, aT := #aT, vMax := #vMaxMag, aMax := #aMaxMag, tf := #tf);
+                    IF #ok THEN
+                        #found := true;
+                        RETURN;
+                    END_IF;
+                END_IF;
+            END_IF;
+        END_REGION
+
+        REGION UDDU general branch
+            IF ABS(#hc) > 1.0E-12 THEN
+                #big1 := (#saMax - #saMin) * (-#saMin * #vd + #saMax * (#saMin * #tf - #vd))
+                    - #af_af * (#saMax * #tf - #vd) + 2.0 * #aT * #saMin * (#saMax * #tf - #vd)
+                    + #a0_a0 * (#saMin * #tf - #vd) - 2.0 * #a0 * #saMax * (#saMin * #tf - #vd);
+                #big2 := 3.0 * #a0_p3 - 3.0 * #af_p3 + 12.0 * #saMax * #saMin * (-#saMax + #saMin)
+                    + 4.0 * #af_af * (#saMax + 2.0 * #saMin)
+                    + #a0 * (-3.0 * #af_af + 8.0 * #aT * (#saMin - #saMax) + 6.0 * (#saMax * #saMax + 2.0 * #saMax * #saMin - #saMin * #saMin))
+                    + 6.0 * #aT * (#saMax * #saMax - 2.0 * #saMax * #saMin - #saMin * #saMin)
+                    + #a0_a0 * (3.0 * #aT - 4.0 * (2.0 * #saMax + #saMin));
+                #num := 144.0 * #big1 * #big1 + 48.0 * #ad * #big2 * #hc;
+                IF #num >= 0.0 THEN
+                    #h1 := SQRT(#num);
+                    #big3 := 3.0 * #af_af * #saMax * #tf - 3.0 * #a0_a0 * #saMin * #tf
+                        - 6.0 * #ad * #saMax * #saMin * #tf + 3.0 * #saMax * #saMin * (#saMin - #saMax) * #tf
+                        + 3.0 * (#a0_a0 - #af_af) * #vd + 6.0 * #vd * (#aT * #saMin - #a0 * #saMax)
+                        + 3.0 * (#saMax * #saMax - #saMin * #saMin) * #vd;
+                    #den := 6.0 * #hc;
+                    #jf := -(#big3 + #h1 / 4.0) / #den;
+                    IF ABS(#jf) > 1.0E-12 AND ABS(#jf) <= #jMaxMag + 1.0E-6 THEN
+                        #profile.t[0] := (#saMax - #a0) / #jf;
+                        #num := #a0_a0 - #af_af + 2.0 * #ad * #saMin - 2.0 * (#saMax * #saMax - 2.0 * #saMax * #saMin + #saMin * #saMin + #saMin * #jf * #tf - #jf * #vd);
+                        #den := 2.0 * (#saMax - #saMin) * #jf;
+                        #profile.t[1] := #num / #den;
+                        #profile.t[2] := #saMax / #jf;
+                        #profile.t[3] := 0.0;
+                        #profile.t[4] := -#saMin / #jf;
+                        #profile.t[5] := #tf - (#profile.t[0] + #profile.t[1] + #profile.t[2] + 2.0 * #profile.t[4] + #aT / #jf);
+                        #profile.t[6] := #profile.t[4] + #aT / #jf;
+                        #profile.j[0] := #jf;
+                        #profile.j[1] := 0.0;
+                        #profile.j[2] := -#jf;
+                        #profile.j[3] := 0.0;
+                        #profile.j[4] := -#jf;
+                        #profile.j[5] := 0.0;
+                        #profile.j[6] := #jf;
+                        #profile.direction := 1;
+                        #profile.controlSigns := 0;
+                        #ok := "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                            pT := #pT, vT := #vT, aT := #aT, vMax := #vMaxMag, aMax := #aMaxMag, tf := #tf);
+                        IF #ok THEN
+                            #found := true;
+                            RETURN;
+                        END_IF;
+                    END_IF;
+                END_IF;
             END_IF;
         END_REGION
     END_NETWORK
