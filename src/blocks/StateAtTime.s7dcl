@@ -3,7 +3,7 @@
     S7_EditorMode := "SCL";
     S7_Family := "Ruckig";
     S7_Optimized := "TRUE";
-    S7_Version := "0.2.0"
+    S7_Version := "0.2.1"
 }
 FUNCTION "StateAtTime" : Void
     VAR_IN_OUT
@@ -34,7 +34,9 @@ FUNCTION "StateAtTime" : Void
             //             arbitrary time t on a 7 phase profile.
             //             If a brake pre-profile exists it runs FIRST; the
             //             main 7 phase profile is then sampled at t-brakeDur.
-            //             Clamps to final state if t exceeds duration.
+            //             Past the end, extrapolates along the final state with
+            //             jerk = 0 (Ruckig at_time parity); for a rest-to-rest
+            //             profile this holds the final position.
             // Note:       Brake positions are seeded RELATIVE (brake.p[0]=0).
             //             Position continuity at the brake/main boundary
             //             requires the caller to seed profile.p[0]=brake.p[2]
@@ -86,10 +88,17 @@ FUNCTION "StateAtTime" : Void
             END_FOR;
         END_REGION
 
-        REGION Clamp beyond trajectory end
-            #p := #profile.p[7];
-            #v := #profile.v[7];
+        REGION Extrapolate beyond trajectory end
+            // Past the trajectory duration Ruckig keeps sampling: the axis
+            // follows the final state with jerk = 0 (a stays = a[7]). For a
+            // rest-to-rest profile (v[7]=a[7]=0) this degenerates to holding
+            // the final position. After the FOR loop above, #tElapsed equals the
+            // sum of the 7 phase durations (the main-profile duration), so the
+            // overshoot past the end is #tEval - #tElapsed.
+            #dt := #tEval - #tElapsed;
             #a := #profile.a[7];
+            #v := #profile.v[7] + #profile.a[7] * #dt;
+            #p := #profile.p[7] + #profile.v[7] * #dt + 0.5 * #profile.a[7] * #dt * #dt;
         END_REGION
     END_NETWORK
 END_FUNCTION

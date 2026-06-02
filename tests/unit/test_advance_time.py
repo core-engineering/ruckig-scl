@@ -48,10 +48,14 @@ def test_advance_increments_current_time(harness):
     assert result.currentTime == pytest.approx(0.010, abs=1e-12)
 
 
-def test_advance_does_not_exceed_duration(harness):
+def test_advance_past_duration_no_clamp(harness):
+    """v0.2 limitation A fix: currentTime is NOT clamped to duration anymore.
+    Ruckig keeps sampling past the trajectory end (the axis follows the final
+    state, e.g. continues at vT), so AdvanceTime must let currentTime grow
+    freely. StateAtTime then extrapolates beyond duration."""
     traj = make_trajectory(current_time=4.995, duration=5.0)
     result = _call(harness, traj, 0.010)
-    assert result.currentTime == pytest.approx(5.0, abs=1e-9)
+    assert result.currentTime == pytest.approx(5.005, abs=1e-9)
 
 
 def test_invalid_trajectory_unchanged(harness):

@@ -74,13 +74,42 @@ def test_state_in_middle_of_const_vel(harness):
     assert a == pytest.approx(0.0, abs=1e-6)
 
 
-def test_state_beyond_trajectory_clamps(harness):
-    """t > duration → returns final state."""
+def test_state_beyond_trajectory_at_rest_holds(harness):
+    """t > duration on a rest-to-rest profile (v[7]=a[7]=0): extrapolation
+    degenerates to holding the final state (the v0.2-A fix is a no-op here)."""
     profile = trapezoidal_profile()
     p, v, a = _eval(harness, profile, 100.0)
     assert p == pytest.approx(10.0, abs=1e-6)
     assert v == pytest.approx(0.0, abs=1e-6)
     assert a == pytest.approx(0.0, abs=1e-6)
+
+
+def test_state_beyond_trajectory_extrapolates_moving(harness):
+    """v0.2 limitation A fix: past duration, a MOVING final state (v[7]/a[7]≠0)
+    must extrapolate kinematically (jerk=0) along the final state, matching
+    Ruckig's at_time(t>duration). Build a no-brake profile whose single active
+    phase leaves a non-zero terminal v and a, then sample past the end."""
+    # 1 active phase: const jerk +5 for 0.4s from rest -> v[7], a[7] != 0
+    mt = [0.4, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    mj = [5.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    ma, mv, mp = [0.0], [0.0], [0.0]
+    for i in range(7):
+        p1, v1, a1 = _integrate_seg(mp[-1], mv[-1], ma[-1], mj[i], mt[i])
+        ma.append(a1); mv.append(v1); mp.append(p1)
+    profile = {
+        "t": mt, "j": mj, "a": ma, "v": mv, "p": mp,
+        "direction": 1,
+        "brake": {"t": [0.0, 0.0], "j": [0.0, 0.0],
+                  "a": [0.0, 0.0, 0.0], "v": [0.0, 0.0, 0.0], "p": [0.0, 0.0, 0.0]},
+        "controlSigns": 0,
+    }
+    main_dur = sum(mt)
+    dt_extra = 0.3
+    ep, ev, ea = _integrate_seg(mp[7], mv[7], ma[7], 0.0, dt_extra)
+    p, v, a = _eval(harness, profile, main_dur + dt_extra)
+    assert a == pytest.approx(ea, abs=1e-9)
+    assert v == pytest.approx(ev, abs=1e-9)
+    assert p == pytest.approx(ep, abs=1e-9)
 
 
 # ---------------------------------------------------------------------------
@@ -182,13 +211,19 @@ def test_state_just_after_brake_uses_main(harness):
     assert p == pytest.approx(ep, abs=1e-9)
 
 
-def test_state_beyond_brake_plus_main_clamps(harness):
-    """t past brake+main duration → holds final main state (p/v/a[7])."""
+def test_state_beyond_brake_plus_main_extrapolates(harness):
+    """t past brake+main duration → extrapolates kinematically (jerk=0) from
+    the final main state. Here mv[7]=-0.175, ma[7]=-5.5 (both non-zero), so the
+    old clamp-to-final behaviour no longer applies (v0.2 limitation A fix)."""
     profile, (bt, bj, ba, bv, bp), (mt, mj, ma, mv, mp) = _profile_with_brake()
-    p, v, a = _eval(harness, profile, 1000.0)
-    assert p == pytest.approx(mp[7], abs=1e-9)
-    assert v == pytest.approx(mv[7], abs=1e-9)
-    assert a == pytest.approx(ma[7], abs=1e-9)
+    brake_dur = bt[0] + bt[1]
+    main_dur = sum(mt)
+    dt_extra = 0.25
+    ep, ev, ea = _integrate_seg(mp[7], mv[7], ma[7], 0.0, dt_extra)
+    p, v, a = _eval(harness, profile, brake_dur + main_dur + dt_extra)
+    assert a == pytest.approx(ea, abs=1e-9)
+    assert v == pytest.approx(ev, abs=1e-9)
+    assert p == pytest.approx(ep, abs=1e-9)
 
 
 def test_state_t_zero_with_brake_returns_brake_start(harness):

@@ -3,6 +3,43 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] - 2026-06-02
+
+Correctness and moving-target parity fixes on top of v0.2.0. No interface or
+UDT changes.
+
+### Fixed
+- **Interior velocity-limit violation (safety).** `CheckProfile` only sampled
+  velocity at phase boundaries, so a profile whose velocity peaked *between*
+  nodes — when the acceleration crosses zero inside a phase — could pass
+  validation and, being shorter, win the minimum-duration selection. The solver
+  could therefore emit a trajectory exceeding `vMax`. `CheckProfile` now also
+  checks the interior extremum `v_a_zero = v[i] - a[i]^2 / (2*j[i])` for phases
+  `i >= 2` (port of Ruckig `profile.hpp` `check<>`, lines 249-254); phases 0-1
+  stay exempt, as in Ruckig.
+- **Moving-target terminal sample.** Past `duration`, `StateAtTime` now
+  extrapolates along the final state with jerk = 0 (`a` stays = `aT`) and
+  `AdvanceTime` no longer clamps `currentTime` to `duration`, matching Ruckig's
+  `at_time(t > duration)`. Moving-target scenarios now reach floating-point-floor
+  parity (~1e-15) on **every** cycle, including the finishing one; the six
+  per-scenario `tol_position`/`tol_velocity` overrides are removed.
+
+### Parity
+- All 18 parity scenarios pass at the strict default 1e-6 tolerance (measured
+  residual ~1e-15), including the moving-target / nonzero-target-acceleration
+  ones that previously needed relaxed overrides.
+
+### Known limitations
+- **Two-step solver fallbacks not yet ported.** For ~3% of arbitrary
+  initial/target state combinations the three main profile families yield no
+  feasible profile and the solver returns `RESULT_ERR_SOLVER`. Ruckig recovers
+  these via `time_none/acc0/vel/acc1_vel_two_step` (`position_third_step1.cpp`
+  lines 287-443); deferred to a dedicated pass. A handful of further cases solve
+  feasibly but not yet time-optimally.
+- **Brake concatenation is feasible but not time-optimal** (deferred to v0.7).
+- The zero-limits special case (`jMax`/`aMax` = 0) is unreachable here:
+  `ValidateInput`'s positive-limit checks reject it upstream.
+
 ## [0.2.0] - 2026-05-30
 
 Single-axis, arbitrary initial **and** target states (`v0, a0 ≠ 0`,
@@ -57,6 +94,7 @@ out-of-limits first enable. Builds on the v0.1 FB/UDT layer.
   returns `RESULT_ERR_SOLVER` if ever required): the zero-limits special case
   and the two-step fallbacks (`time_*_two_step`).
 
+[0.2.1]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.2.1
 [0.2.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.2.0
 
 ## [0.1.0] - 2026-05-29

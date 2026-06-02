@@ -71,3 +71,53 @@ def test_wrong_target_false(harness):
     p7, v7, a7, mv, ma = _ref(T, J)
     assert _check(harness, _profile(T, J), 0.0, 0.0, 0.0,
                   p7 + 1.0, v7, a7, mv + 0.1, ma + 0.1) is False
+
+
+# ---------------------------------------------------------------------------
+# Internal velocity extremum (Ruckig profile.hpp check<>, lines 249-254).
+# When acceleration crosses zero INSIDE a phase (i>=2), velocity has an interior
+# extremum v_a_zero = v[i] - a[i]^2/(2*j[i]) that the node samples miss. The
+# solver must reject a profile whose interior velocity peak exceeds vMax, even
+# though every node sample stays within limits — otherwise it can emit (and pick
+# as "shorter") a trajectory that overshoots vMax between nodes. v0.2 bug fix.
+# ---------------------------------------------------------------------------
+
+# rest start; phase 0 ramps a up to +10, phase 2 ramps it down through zero to
+# -10 -> velocity peaks at 1.0 mid-phase-2 while every node stays at v=0.5.
+T_PEAK = [0.1, 0.0, 0.2, 0.0, 0.0, 0.0, 0.0]
+J_PEAK = [100.0, 0.0, -100.0, 0.0, 0.0, 0.0, 0.0]
+
+
+def _internal_peak(t, j, p0=0.0, v0=0.0, a0=0.0):
+    """Max |v| including interior a-crossing extrema (the true definition)."""
+    a = [a0]; v = [v0]
+    peak = abs(v0)
+    for i in range(7):
+        dt = t[i]
+        a1 = a[i] + j[i] * dt
+        if a[i] * a1 < 0.0 and j[i] != 0.0:  # a crosses zero inside the segment
+            v_az = v[i] - (a[i] * a[i]) / (2.0 * j[i])
+            peak = max(peak, abs(v_az))
+        v.append(v[i] + a[i] * dt + 0.5 * j[i] * dt * dt)
+        a.append(a1)
+        peak = max(peak, abs(v[i + 1]))
+    return peak
+
+
+def test_internal_velocity_peak_false(harness):
+    """Interior velocity peak (1.0) exceeds vMax (0.8) although all node samples
+    sit at v=0.5 < 0.8. Must be rejected (was wrongly accepted pre-fix)."""
+    p7, v7, a7, mv_nodes, ma = _ref(T_PEAK, J_PEAK)
+    peak = _internal_peak(T_PEAK, J_PEAK)
+    assert peak == pytest.approx(1.0, abs=1e-9)
+    assert mv_nodes == pytest.approx(0.5, abs=1e-9)
+    # vMax between the node max (0.5) and the interior peak (1.0)
+    assert _check(harness, _profile(T_PEAK, J_PEAK), 0.0, 0.0, 0.0,
+                  p7, v7, a7, 0.8, ma + 0.1) is False
+
+
+def test_internal_velocity_peak_within_limits_true(harness):
+    """Same profile, vMax above the interior peak -> accepted."""
+    p7, v7, a7, mv_nodes, ma = _ref(T_PEAK, J_PEAK)
+    assert _check(harness, _profile(T_PEAK, J_PEAK), 0.0, 0.0, 0.0,
+                  p7, v7, a7, 1.1, ma + 0.1) is True
