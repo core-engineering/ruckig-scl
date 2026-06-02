@@ -3,7 +3,7 @@
     S7_EditorMode := "SCL";
     S7_Family := "Ruckig";
     S7_Optimized := "TRUE";
-    S7_Version := "0.2.0"
+    S7_Version := "0.2.1"
 }
 FUNCTION "CheckProfile" : Bool
     VAR_IN_OUT
@@ -20,7 +20,9 @@ FUNCTION "CheckProfile" : Bool
         aMax : LReal;
     END_VAR
     VAR_TEMP
-        i : DInt;
+        i       : DInt;
+        vAtZero : LReal;
+        denom   : LReal;
     END_VAR
     VAR CONSTANT
         EPS_TIME   : LReal := 1.0E-9;
@@ -62,6 +64,27 @@ FUNCTION "CheckProfile" : Bool
                 IF ABS(#profile.a[#i]) > #aMax + #EPS_LIMIT THEN
                     #CheckProfile := false;
                     RETURN;
+                END_IF;
+            END_FOR;
+        END_REGION
+
+        REGION Internal velocity extrema
+            // Node samples miss velocity peaks that occur WHEN the acceleration
+            // crosses zero inside a phase. Port of Ruckig profile.hpp check<>
+            // (lines 249-254): for i >= 2, if a[i] and a[i+1] have opposite
+            // signs, velocity has an interior extremum
+            //   v_a_zero = v[i] - a[i]^2 / (2*j[i])
+            // which must stay within +/- vMax. Phases 0-1 are exempt (Ruckig:
+            // the velocity limit may legitimately be broken at the very start
+            // when the initial velocity and acceleration are both extreme).
+            FOR #i := 2 TO 6 DO
+                IF #profile.a[#i] * #profile.a[#i + 1] < 0.0 THEN
+                    #denom := 2.0 * #profile.j[#i];
+                    #vAtZero := #profile.v[#i] - #profile.a[#i] * #profile.a[#i] / #denom;
+                    IF ABS(#vAtZero) > #vMax + #EPS_LIMIT THEN
+                        #CheckProfile := false;
+                        RETURN;
+                    END_IF;
                 END_IF;
             END_FOR;
         END_REGION

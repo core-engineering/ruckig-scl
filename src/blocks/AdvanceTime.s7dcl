@@ -3,7 +3,7 @@
     S7_EditorMode := "SCL";
     S7_Family := "Ruckig";
     S7_Optimized := "TRUE";
-    S7_Version := "0.2.0"
+    S7_Version := "0.2.1"
 }
 FUNCTION "AdvanceTime" : Void
     VAR_IN_OUT
@@ -21,9 +21,10 @@ FUNCTION "AdvanceTime" : Void
         REGION Block header
             //==========================================================
             // Title:      AdvanceTime
-            // Function:   Increment trajectory.currentTime by dt,
-            //             clamped to trajectory.duration. No op if
-            //             trajectory.isValid is FALSE.
+            // Function:   Increment trajectory.currentTime by dt. NOT clamped to
+            //             duration: past the end Ruckig keeps sampling and the
+            //             axis follows the final state (StateAtTime extrapolates),
+            //             so currentTime grows freely. No op if isValid is FALSE.
             // Family:     Ruckig
             // Author:     Martin C
             //==========================================================
@@ -34,9 +35,6 @@ FUNCTION "AdvanceTime" : Void
                 RETURN;
             END_IF;
             #newTime := #trajectory.currentTime + #dt;
-            IF #newTime > #trajectory.duration THEN
-                #newTime := #trajectory.duration;
-            END_IF;
             #trajectory.currentTime := #newTime;
         END_REGION
     END_NETWORK

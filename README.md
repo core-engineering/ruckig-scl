@@ -4,9 +4,10 @@ A Siemens SCL (Structured Text) port of the [Ruckig](https://github.com/pantor/r
 Online Trajectory Generation library, for S7-1500 PLCs. MIT-licensed (same as
 upstream Ruckig).
 
-**Status: v0.2.0 — single-axis, arbitrary initial AND target states
+**Status: v0.2.1 — single-axis, arbitrary initial AND target states
 (`v0, a0 ≠ 0`, target velocity & acceleration ≠ 0), with online retarget
-chaining and a brake pre-phase.**
+chaining and a brake pre-phase. v0.2.1 fixes an interior velocity-limit check
+and brings moving targets to floating-point-floor parity.**
 
 ## Features (v0.2)
 
@@ -25,15 +26,21 @@ chaining and a brake pre-phase.**
   agrees to the floating-point floor (~1e-15) across all profile families;
   cyclic rest-to-rest / zero-target-velocity parity holds to 1e-6
 
-### Known limitations (v0.2)
+### Known limitations (v0.2.1)
 
-- With a **moving target** (non-zero target velocity), every cycle matches
-  Ruckig to ~1e-15 except the single finishing cycle (a bounded ~1e-3
-  sampling-convention delta — `AdvanceTime` clamps to the trajectory duration
-  while Ruckig samples the grid time and keeps moving).
+- **Two-step solver fallbacks not yet ported.** For ~3% of arbitrary
+  initial/target state combinations the three main profile families yield no
+  feasible profile and the solver returns `RESULT_ERR_SOLVER` (Ruckig recovers
+  these via its `time_*_two_step` paths). Deferred to a dedicated pass; a few
+  further cases solve feasibly but not yet time-optimally.
 - The brake pre-phase brakes correctly and reaches the target, but rides a
   once-computed brake + main concatenation that is feasible, **not**
   time-optimal. Full brake machinery is deferred to v0.7.
+
+Resolved in v0.2.1: moving targets now match Ruckig to ~1e-15 on **every**
+cycle (the FB extrapolates past `duration` exactly as Ruckig does), and the
+feasibility check no longer misses velocity peaks that occur between phase
+nodes.
 
 ## Architecture
 
