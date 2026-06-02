@@ -1,0 +1,41 @@
+{
+    S7_Author := "Martin C";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.3.0"
+}
+FUNCTION "SolveTimedNone" : Void
+    VAR_IN_OUT
+        profile : _.typeProfile;
+        found   : Bool;
+    END_VAR
+    VAR_INPUT
+        p0    : LReal;
+        v0    : LReal;
+        a0    : LReal;
+        pT    : LReal;
+        vT    : LReal;
+        aT    : LReal;
+        svMax : LReal;
+        svMin : LReal;
+        saMax : LReal;
+        saMin : LReal;
+        sjMax : LReal;
+        tf    : LReal;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Stub - implemented in a later v0.3 task
+            // step2 family time_None (re-time to tf). Ruckig
+            // position_third_step2.cpp. First-valid-wins: skip if already found.
+            // TODO(v0.3): port the UDDU[/UDUD] closed-form / quartic candidates,
+            // set profile.t/j, validate with "CheckProfile"(... tf := #tf), and
+            // set #found := true on success.
+            IF #found THEN
+                RETURN;
+            END_IF;
+        END_REGION
+    END_NETWORK
+END_FUNCTION

@@ -11,6 +11,12 @@ import pytest
 ruckig = pytest.importorskip("ruckig")
 
 _VMAX, _AMAX, _JMAX = 2.0, 3.0, 10.0
+_FUNC = "ComputeProfile1AxisTimed"
+
+
+@pytest.fixture
+def harness(make_harness):
+    return make_harness("ComputeProfile1AxisTimed.s7dcl")
 
 
 def _empty_profile():
@@ -59,6 +65,24 @@ def test_oracle_timed_stretches_to_tf(k):
     assert tr.duration == pytest.approx(tf, abs=1e-6)
     if k > 1.0:
         assert tr.duration > tmin + 1e-6  # genuinely stretched beyond optimal
+
+
+def _run_timed(harness, p0, v0, a0, pT, vT, aT, tf, vM=_VMAX, aM=_AMAX, jM=_JMAX):
+    harness.reset()
+    harness.set_inputs(profile=_empty_profile(), p0=p0, v0=v0, a0=a0,
+                       pT=pT, vT=vT, aT=aT, vMax=vM, aMax=aM, jMax=jM, tf=tf)
+    harness.execute()
+    return harness.get_output(_FUNC), harness.get_var("profile")
+
+
+def test_dispatch_stubs_return_err_solver(harness):
+    """Phase 1 (T4): the orchestrator + 8 family stubs compile and wire up; with
+    every family a no-op stub, nothing is found -> RESULT_ERR_SOLVER. Family
+    implementations (T6+) flip these to RESULT_WORKING."""
+    args = (0.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+    tf = _t_min(*args) * 1.5
+    st, _ = _run_timed(harness, *args, tf)
+    assert st == 0x8602  # RESULT_ERR_SOLVER (no family implemented yet)
 
 
 def test_oracle_timed_reaches_target():
