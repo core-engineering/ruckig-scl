@@ -28,10 +28,10 @@ def _ref(t, j, p0=0.0, v0=0.0, a0=0.0):
     return p[7], v[7], a[7], max(abs(x) for x in v), max(abs(x) for x in a)
 
 
-def _check(harness, prof, p0, v0, a0, pT, vT, aT, vMax, aMax):
+def _check(harness, prof, p0, v0, a0, pT, vT, aT, vMax, aMax, tf=-1.0):
     harness.reset()
     harness.set_inputs(profile=prof, p0=p0, v0=v0, a0=a0,
-                       pT=pT, vT=vT, aT=aT, vMax=vMax, aMax=aMax)
+                       pT=pT, vT=vT, aT=aT, vMax=vMax, aMax=aMax, tf=tf)
     harness.execute()
     return harness.get_output("CheckProfile")
 
@@ -121,3 +121,55 @@ def test_internal_velocity_peak_within_limits_true(harness):
     p7, v7, a7, mv_nodes, ma = _ref(T_PEAK, J_PEAK)
     assert _check(harness, _profile(T_PEAK, J_PEAK), 0.0, 0.0, 0.0,
                   p7, v7, a7, 1.1, ma + 0.1) is True
+
+
+# ---------------------------------------------------------------------------
+# step2 (v0.3): imposed-duration check (guarded by sentinel tf < 0).
+# ---------------------------------------------------------------------------
+
+def test_duration_tf_match_true(harness):
+    """With tf == sum(t), an otherwise valid profile passes the duration check."""
+    p7, v7, a7, mv, ma = _ref(T, J)
+    tf = sum(T)  # 6.2
+    assert _check(harness, _profile(T, J), 0.0, 0.0, 0.0,
+                  p7, v7, a7, mv + 0.1, ma + 0.1, tf=tf) is True
+
+
+def test_duration_tf_mismatch_false(harness):
+    """A profile whose sum(t) != tf is rejected by the duration check."""
+    p7, v7, a7, mv, ma = _ref(T, J)
+    tf = sum(T) - 1.0  # 5.2 != 6.2
+    assert _check(harness, _profile(T, J), 0.0, 0.0, 0.0,
+                  p7, v7, a7, mv + 0.1, ma + 0.1, tf=tf) is False
+
+
+def test_duration_sentinel_skips_check(harness):
+    """tf < 0 disables the duration check (step1 behaviour): a valid profile
+    with any duration still passes."""
+    p7, v7, a7, mv, ma = _ref(T, J)
+    assert _check(harness, _profile(T, J), 0.0, 0.0, 0.0,
+                  p7, v7, a7, mv + 0.1, ma + 0.1, tf=-1.0) is True
+
+
+# UDUD profile (step2 control signs) must pass the whole CheckProfile chain
+# (integration, interior-velocity check at i>=2, target) when within limits.
+T_UDUD = [0.1, 0.05, 0.2, 0.1, 0.2, 0.05, 0.1]
+J_UDUD = [10.0, 0.0, -10.0, 0.0, 10.0, 0.0, -10.0]
+
+
+def test_udud_valid_profile_true(harness):
+    p7, v7, a7, mv, ma = _ref(T_UDUD, J_UDUD)
+    peak = _internal_peak(T_UDUD, J_UDUD)
+    # generous limits above the true interior peak -> must be accepted
+    assert _check(harness, _profile(T_UDUD, J_UDUD), 0.0, 0.0, 0.0,
+                  p7, v7, a7, peak + 0.1, ma + 0.1) is True
+
+
+def test_udud_interior_peak_rejected(harness):
+    """The interior-velocity check also guards UDUD: vMax below the interior
+    peak rejects the profile even if node samples are within limits."""
+    p7, v7, a7, mv, ma = _ref(T_UDUD, J_UDUD)
+    peak = _internal_peak(T_UDUD, J_UDUD)
+    if peak > mv + 1e-6:  # only meaningful if the peak is interior
+        assert _check(harness, _profile(T_UDUD, J_UDUD), 0.0, 0.0, 0.0,
+                      p7, v7, a7, (mv + peak) / 2.0, ma + 0.1) is False
