@@ -67,9 +67,9 @@ FUNCTION "Synchronize" : Void
             FOR #d := 0 TO #nDofs - 1 DO
                 IF #participates[#d] THEN
                     #anyPart := true;
-                    IF #blockSet.items[#d].tMin > #tStart THEN
-                        #tStart := #blockSet.items[#d].tMin;
-                    END_IF;
+                END_IF;
+                IF #blockSet.items[#d].tMin > #tStart THEN
+                    #tStart := #blockSet.items[#d].tMin;
                 END_IF;
             END_FOR;
             #limitingAxis := 0;

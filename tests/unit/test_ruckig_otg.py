@@ -497,3 +497,33 @@ def test_discrete_duration_is_cycle_multiple(harness):
     assert harness.get_output("output").newPosition[1] == pytest.approx(5.0, abs=1e-3)
 
 
+def test_per_dof_no_axis_longer_than_time_axis(harness):
+    """per_dof [No, Time] where the No axis is SLOWER: the Time axis must stretch
+    to the No axis's duration (not finish early). Regression for the t_sync lower
+    bound including No axes."""
+    inp = default_input()
+    inp["nDofs"] = 2
+    inp["synchronization"] = 2
+    inp["perDofSynchronization"] = [0, 2, -1, -1]  # axis0 No (long), axis1 Time (short)
+    inp["enabled"] = [True, True, False, False]
+    inp["targetPosition"] = [5.0, 1.0, 0.0, 0.0]
+    inp["maxVelocity"] = [2.0] * 4
+    inp["maxAcceleration"] = [5.0] * 4
+    inp["maxJerk"] = [10.0] * 4
+    reached1 = None
+    done_cyc = None
+    for cyc in range(1200):
+        harness.set_inputs(enable=True, input=inp, cycleTime=0.010, reset=False)
+        harness.execute()
+        assert harness.get_output("error") is False
+        out = harness.get_output("output")
+        if reached1 is None and abs(out.newPosition[1] - 1.0) < 1e-3:
+            reached1 = cyc
+        if harness.get_output("done"):
+            done_cyc = cyc
+            break
+    # The Time axis (axis1, target 1.0) is stretched to the No axis's ~3.39 s
+    # (~339 cycles), so it must NOT reach its target in the first ~200 cycles.
+    assert reached1 is not None and reached1 > 250, f"Time axis finished too early at cycle {reached1}"
+    assert harness.get_output("output").newPosition[0] == pytest.approx(5.0, abs=1e-3)
+    assert harness.get_output("output").newPosition[1] == pytest.approx(1.0, abs=1e-3)

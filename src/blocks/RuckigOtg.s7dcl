@@ -330,28 +330,26 @@ FUNCTION_BLOCK "RuckigOtg"
                             #participates[#ax] := #modeEff[#ax] <> "dbRuckigConst".SYNC_NONE;
                         END_FOR;
 
-                        // 2. Block per participating axis (for t_sync)
+                        // 2. Block every axis (No axes' tMin still sets the t_sync floor)
                         FOR #ax := 0 TO #nd - 1 DO
-                            IF #participates[#ax] THEN
-                                #blockResult := "ComputeBlock1Axis"(
-                                    block := #blockSet.items[#ax],
-                                    profile := #trajectory.profiles[#ax],
-                                    p0 := #chainPos[#ax], v0 := #chainVel[#ax], a0 := #chainAcc[#ax],
-                                    pT := #input.targetPosition[#ax],
-                                    vT := #input.targetVelocity[#ax],
-                                    aT := #input.targetAcceleration[#ax],
-                                    vMax := #input.maxVelocity[#ax],
-                                    aMax := #input.maxAcceleration[#ax],
-                                    jMax := #input.maxJerk[#ax]);
-                                IF #blockResult <> "dbRuckigConst".RESULT_WORKING THEN
-                                    #valid := false;
-                                    #busy := false;
-                                    #done := false;
-                                    #error := true;
-                                    #status := "dbRuckigConst".RESULT_ERR_TRAJ;
-                                    #trajectory.isValid := false;
-                                    RETURN;
-                                END_IF;
+                            #blockResult := "ComputeBlock1Axis"(
+                                block := #blockSet.items[#ax],
+                                profile := #trajectory.profiles[#ax],
+                                p0 := #chainPos[#ax], v0 := #chainVel[#ax], a0 := #chainAcc[#ax],
+                                pT := #input.targetPosition[#ax],
+                                vT := #input.targetVelocity[#ax],
+                                aT := #input.targetAcceleration[#ax],
+                                vMax := #input.maxVelocity[#ax],
+                                aMax := #input.maxAcceleration[#ax],
+                                jMax := #input.maxJerk[#ax]);
+                            IF #blockResult <> "dbRuckigConst".RESULT_WORKING THEN
+                                #valid := false;
+                                #busy := false;
+                                #done := false;
+                                #error := true;
+                                #status := "dbRuckigConst".RESULT_ERR_TRAJ;
+                                #trajectory.isValid := false;
+                                RETURN;
                             END_IF;
                         END_FOR;
 
@@ -402,11 +400,14 @@ FUNCTION_BLOCK "RuckigOtg"
                                 END_IF;
                             END_IF;
 
-                            // at-target (incl. moving-through): hold/extrapolate; avoids a degenerate solve
+                            // at-target and stationary: zero-fill; avoids a degenerate solve
+                            // (axes cruising through their target, v0=vT!=0, must NOT be zero-filled)
                             #atTarget :=
                                 ABS(#input.targetPosition[#ax] - #chainPos[#ax]) < "dbRuckigConst".EPS_POSITION
                                 AND ABS(#input.targetVelocity[#ax] - #chainVel[#ax]) < "dbRuckigConst".EPS_VELOCITY
-                                AND ABS(#input.targetAcceleration[#ax] - #chainAcc[#ax]) < "dbRuckigConst".EPS_DERIV;
+                                AND ABS(#input.targetAcceleration[#ax] - #chainAcc[#ax]) < "dbRuckigConst".EPS_DERIV
+                                AND ABS(#chainVel[#ax]) < "dbRuckigConst".EPS_VELOCITY
+                                AND ABS(#chainAcc[#ax]) < "dbRuckigConst".EPS_DERIV;
 
                             IF #atTarget THEN
                                 FOR #i := 0 TO 6 DO

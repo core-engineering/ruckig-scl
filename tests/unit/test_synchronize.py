@@ -68,13 +68,15 @@ def test_minimum_duration_in_blocked_interval(harness):
     assert tsync == pytest.approx(3.0)
 
 
-def test_participation_mask_excludes_no_axis(harness):
-    # DoF0 t_min=3.0 but NOT participating (No); DoF1 t_min=1.0 participating.
-    # t_sync must ignore DoF0 -> 1.0, limiting = DoF1.
+def test_participation_mask_no_axis_sets_tsync_floor(harness):
+    # DoF0 t_min=3.0 NOT participating (No); DoF1 t_min=1.0 participating.
+    # The No axis's tMin still sets the t_sync floor (overall trajectory duration).
+    # t_sync = max(3.0, 1.0) = 3.0; limiting axis is still DoF1 (the longest
+    # participating axis, used for re-timing participating axes).
     ok, tsync, lim = _run(harness, [_blk(3.0), _blk(1.0)], 2,
                           participates=[False, True])
     assert ok is True
-    assert tsync == pytest.approx(1.0)
+    assert tsync == pytest.approx(3.0)
     assert lim == 1
 
 
@@ -96,9 +98,11 @@ def test_discrete_rounding_jumps_blocked_interval(harness):
     assert tsync == pytest.approx(3.0, abs=1e-9)
 
 
-def test_all_no_axes_resolve_to_minimum_duration(harness):
-    # No participating axis -> resolved, t_sync = tStart (minimumDuration here).
+def test_all_no_axes_resolve_to_max_tmin_or_minimum_duration(harness):
+    # No participating axis -> resolved trivially; t_sync = max(minimumDuration,
+    # max(tMin over all axes)) = max(1.5, 2.0) = 2.0.
+    # (No-axes' tMin values still set the floor even when all axes are No.)
     ok, tsync, lim = _run(harness, [_blk(1.0), _blk(2.0)], 2,
                           participates=[False, False], minimum_duration=1.5)
     assert ok is True
-    assert tsync == pytest.approx(1.5)
+    assert tsync == pytest.approx(2.0)
