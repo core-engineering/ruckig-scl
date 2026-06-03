@@ -63,6 +63,7 @@ def run_scl(
         "minimumDuration": minimum_duration,
         "controlInterface": 0,
         "synchronization": synchronization,
+        "perDofSynchronization": [-1, -1, -1, -1],
         "durationDiscretization": 0,
     }
 

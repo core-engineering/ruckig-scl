@@ -19,6 +19,7 @@ def default_input() -> dict:
         "minimumDuration": -1.0,
         "controlInterface": 0,
         "synchronization": 2,
+        "perDofSynchronization": [-1, -1, -1, -1],
         "durationDiscretization": 0,
     }
 

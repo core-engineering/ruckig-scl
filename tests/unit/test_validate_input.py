@@ -39,6 +39,7 @@ def make_valid_input(**overrides) -> dict:
         "minimumDuration": -1.0,
         "controlInterface": 0,
         "synchronization": 2,
+        "perDofSynchronization": [-1, -1, -1, -1],
         "durationDiscretization": 0,
     }
     for key, value in overrides.items():

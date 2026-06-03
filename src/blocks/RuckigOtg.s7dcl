@@ -167,6 +167,14 @@ FUNCTION_BLOCK "RuckigOtg"
                 IF #input.synchronization <> #prevInput.synchronization THEN
                     #recomputeRequired := true;
                 END_IF;
+                IF #input.durationDiscretization <> #prevInput.durationDiscretization THEN
+                    #recomputeRequired := true;
+                END_IF;
+                FOR #ax := 0 TO #nd - 1 DO
+                    IF #input.perDofSynchronization[#ax] <> #prevInput.perDofSynchronization[#ax] THEN
+                        #recomputeRequired := true;
+                    END_IF;
+                END_FOR;
             END_IF;
         END_REGION
 
