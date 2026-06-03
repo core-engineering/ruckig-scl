@@ -3,6 +3,46 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-06-03
+
+Single-axis **step2**: re-time a move to an imposed duration `tf >= t_min`.
+This is Ruckig's second solver stage and the foundation for v0.4 multi-axis
+time synchronization. FC-only (the `RuckigOtg` FB is unchanged; a
+`minimumDuration` input ships with v0.4).
+
+### Added
+- `ComputeProfile1AxisTimed` (FC) — step2 entry point. Given `tf`, finds the
+  jerk-limited profile reaching the arbitrary final state `(pT, vT, aT)` exactly
+  at `tf`. Dispatches the 8 step2 families in Ruckig's order, both directions,
+  **UDDU and UDUD** control signs (UDUD is new to the project).
+- 8 step2 family FCs: `SolveTimedAcc0Acc1Vel`, `SolveTimedVel` (degree-5/6
+  polynomial), `SolveTimedAcc0Vel`, `SolveTimedAcc1Vel`, `SolveTimedAcc0Acc1`
+  (free jerk), `SolveTimedAcc0`, `SolveTimedAcc1`, `SolveTimedNone`.
+- `PolyEval` / `ShrinkInterval` FCs — polynomial evaluation (Horner) and
+  safe-Newton root bracketing (ports of Ruckig `roots.hpp`). `time_vel` finds
+  its degree-5/6 real roots by a dense sign-change scan (with local-minimum
+  detection for tangent roots) + `ShrinkInterval`.
+- `CheckProfile` gains an optional imposed-duration check (`tf`; sentinel
+  `tf < 0` disables it, so step1 callers are unaffected).
+
+### Parity / validity
+- Velocity-reaching families (`*_vel`) match Ruckig to ~1e-6 (unique shapes).
+- No-plateau families (NONE/ACC0/ACC1) use a **validity** criterion: at an
+  imposed `tf` several valid trajectories exist, so the solver returns one that
+  reaches the state at `tf` within limits (incl. interior velocity extrema,
+  guaranteed by `CheckProfile`) — not necessarily Ruckig's exact shape.
+- Validity sweep over arbitrary states × reachable `tf`: 720/720 valid, 0
+  errors, **0 invalid trajectories**.
+
+### Known limitations
+- **Blocked durations**: when `tf` falls in a blocked interval (no jerk-limited
+  profile of exactly that duration exists), `ComputeProfile1AxisTimed` returns
+  `RESULT_ERR_SOLVER`. Detecting/avoiding blocked intervals is the `Block` /
+  synchronization layer, deferred to v0.4 (which picks a non-blocked `t_sync`).
+- step1 (time-optimal) retains its ~3% arbitrary-state gaps from v0.2; unrelated
+  to step2.
+- Multi-axis synchronization, `RuckigOtg.minimumDuration` — v0.4.
+
 ## [0.2.1] - 2026-06-02
 
 Correctness and moving-target parity fixes on top of v0.2.0. No interface or
@@ -94,6 +134,7 @@ out-of-limits first enable. Builds on the v0.1 FB/UDT layer.
   returns `RESULT_ERR_SOLVER` if ever required): the zero-limits special case
   and the two-step fallbacks (`time_*_two_step`).
 
+[0.3.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.3.0
 [0.2.1]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.2.1
 [0.2.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.2.0
 
