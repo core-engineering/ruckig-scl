@@ -1,0 +1,19 @@
+TYPE
+    typeBlock : STRUCT
+        // Reachable-duration block for one DoF (Ruckig block.hpp).
+        // tMin/pMin: minimum duration and its profile. Up to two blocked
+        // intervals (durations NOT achievable): (aLeft,aRight) and (bLeft,bRight),
+        // each with the profile at its right (upper) edge. *Valid flags replace
+        // C++ std::optional.
+        tMin     : LReal;
+        pMin     : typeProfile;
+        aValid   : Bool := false;
+        aLeft    : LReal;
+        aRight   : LReal;
+        aProfile : typeProfile;
+        bValid   : Bool := false;
+        bLeft    : LReal;
+        bRight   : LReal;
+        bProfile : typeProfile;
+    END_STRUCT;
+END_TYPE
