@@ -1,0 +1,149 @@
+{
+    S7_Author := "Martin C";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.4.0"
+}
+FUNCTION "ComputeBlock1Axis" : Word
+    VAR_IN_OUT
+        block   : _.typeBlock;
+        profile : _.typeProfile;
+    END_VAR
+    VAR_INPUT
+        p0   : LReal;
+        v0   : LReal;
+        a0   : LReal;
+        pT   : LReal;
+        vT   : LReal;
+        aT   : LReal;
+        vMax : LReal;
+        aMax : LReal;
+        jMax : LReal;
+    END_VAR
+    VAR_TEMP
+        bestT        : Array[0..6] of LReal;
+        bestDuration : LReal;
+        found        : Bool;
+        bestSjMax    : LReal;
+        allDur       : Array[0..7] of LReal;
+        allCount     : Int;
+        nd           : Int;
+        i            : Int;
+        j            : Int;
+        tmp          : LReal;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      ComputeBlock1Axis
+            // Function:   v0.4 step1-as-Block. Runs the time-optimal families
+            //             (both directions, via "SolveDirection") collecting
+            //             EVERY valid candidate duration, then derives the
+            //             reachable-duration Block: tMin + up to two blocked
+            //             intervals (durations not achievable). Port of Ruckig
+            //             Block::calculate_block (block.hpp l.60-132), durations
+            //             only. Foundation for multi-axis t_sync.
+            // Family:     Ruckig
+            // Author:     Martin C
+            // Ref:        ruckig/include/ruckig/block.hpp
+            //==========================================================
+        END_REGION
+
+        REGION Already-at-target degenerate guard
+            // If the seed already equals the target, there is nothing to solve
+            // (the family formulas divide by zero on the fully-degenerate input).
+            // tMin = 0, no blocked interval. Needed for multi-axis: an axis that
+            // starts on its target must still synchronize (step2 holds it).
+            IF ABS(#pT - #p0) < "dbRuckigConst".EPS_POSITION
+                AND ABS(#vT - #v0) < "dbRuckigConst".EPS_VELOCITY
+                AND ABS(#aT - #a0) < "dbRuckigConst".EPS_DERIV THEN
+                #block.tMin   := 0.0;
+                #block.found  := true;
+                #block.aValid := false;
+                #block.bValid := false;
+                #ComputeBlock1Axis := "dbRuckigConst".RESULT_WORKING;
+                RETURN;
+            END_IF;
+        END_REGION
+
+        REGION Run step1 families collecting all valid durations
+            #bestDuration := 1.0E30;
+            #found        := false;
+            #bestSjMax    := #jMax;
+            #allCount     := 0;
+            "SolveDirection"(profile := #profile, bestT := #bestT,
+                bestDuration := #bestDuration, found := #found, bestSjMax := #bestSjMax,
+                allDur := #allDur, allCount := #allCount,
+                p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
+                svMax := #vMax, svMin := -#vMax, saMax := #aMax, saMin := -#aMax, sjMax := #jMax);
+            "SolveDirection"(profile := #profile, bestT := #bestT,
+                bestDuration := #bestDuration, found := #found, bestSjMax := #bestSjMax,
+                allDur := #allDur, allCount := #allCount,
+                p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
+                svMax := -#vMax, svMin := #vMax, saMax := -#aMax, saMin := #aMax, sjMax := -#jMax);
+            #block.tMin   := #bestDuration;
+            #block.found  := #found;
+            #block.aValid := false;
+            #block.bValid := false;
+        END_REGION
+
+        REGION Fail if no profile
+            IF NOT #found THEN
+                #ComputeBlock1Axis := "dbRuckigConst".RESULT_ERR_SOLVER;
+                RETURN;
+            END_IF;
+        END_REGION
+
+        REGION Sort valid durations (ascending bubble sort)
+            FOR #i := 0 TO #allCount - 2 DO
+                FOR #j := 0 TO #allCount - 2 - #i DO
+                    IF #allDur[#j] > #allDur[#j + 1] THEN
+                        #tmp := #allDur[#j];
+                        #allDur[#j] := #allDur[#j + 1];
+                        #allDur[#j + 1] := #tmp;
+                    END_IF;
+                END_FOR;
+            END_FOR;
+        END_REGION
+
+        REGION Deduplicate (in-place compaction) -> nd distinct durations
+            #nd := 0;
+            FOR #i := 0 TO #allCount - 1 DO
+                IF #nd = 0 THEN
+                    #allDur[0] := #allDur[#i];
+                    #nd := 1;
+                ELSIF #allDur[#i] - #allDur[#nd - 1] > 1.0E-7 THEN
+                    #allDur[#nd] := #allDur[#i];
+                    #nd := #nd + 1;
+                END_IF;
+            END_FOR;
+        END_REGION
+
+        REGION Calculate_block (blocked intervals from distinct durations)
+            // Ruckig block.hpp: count==1 -> tMin only; ==2 -> blocked (d0,d1);
+            // ==3 -> tMin=d0, blocked (d1,d2); ==5 -> two intervals. nd>=4 even
+            // (rare, numerical) falls back to no interval.
+            #block.tMin := #allDur[0];
+            IF #nd = 2 THEN
+                #block.aValid := true;
+                #block.aLeft  := #allDur[0];
+                #block.aRight := #allDur[1];
+            ELSIF #nd = 3 THEN
+                #block.aValid := true;
+                #block.aLeft  := #allDur[1];
+                #block.aRight := #allDur[2];
+            ELSIF #nd = 5 THEN
+                #block.aValid := true;
+                #block.aLeft  := #allDur[1];
+                #block.aRight := #allDur[2];
+                #block.bValid := true;
+                #block.bLeft  := #allDur[3];
+                #block.bRight := #allDur[4];
+            END_IF;
+            #ComputeBlock1Axis := "dbRuckigConst".RESULT_WORKING;
+        END_REGION
+    END_NETWORK
+END_FUNCTION

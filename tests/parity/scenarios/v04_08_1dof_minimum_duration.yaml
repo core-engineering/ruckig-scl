@@ -1,0 +1,11 @@
+name: v0.4 1-DoF minimum_duration stretch
+# A single 1 m rest move forced to last at least 3 s via minimum_duration (its
+# natural t_min ~ 1.47 s). Routes the 1-DoF case through the v0.4 step2 path
+# (minimum_duration set), and must match Ruckig's minimum_duration result.
+n_dofs: 1
+target_position: [1.0]
+max_velocity: [2.0]
+max_acceleration: [5.0]
+max_jerk: [10.0]
+minimum_duration: 3.0
+cycle_time: 0.010

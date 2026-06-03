@@ -16,6 +16,7 @@ def default_input() -> dict:
         "maxJerk": [10.0] * 4,
         "enabled": [True, False, False, False],
         "nDofs": 1,
+        "minimumDuration": -1.0,
         "controlInterface": 0,
         "synchronization": 0,
         "durationDiscretization": 0,
@@ -190,6 +191,8 @@ def test_first_enable_in_motion_over_vmax_brakes_then_converges(harness):
 
     final_pos = 0.0
     final_vel = 0.0
+    prev_vel = 5.0  # initial axis velocity
+    amax = 5.0
     for _cycle in range(1500):
         harness.set_inputs(enable=True, input=inp, cycleTime=dt, reset=False)
         harness.execute()
@@ -197,11 +200,100 @@ def test_first_enable_in_motion_over_vmax_brakes_then_converges(harness):
         final_pos = out.newPosition[0]
         final_vel = out.newVelocity[0]
         assert harness.get_output("error") is False
+        # Velocity must stay C1-continuous across the brake/main junction: a wrong
+        # post-brake seed (e.g. dropped "=>" outputs) shows up as a |dv| spike.
+        assert abs(final_vel - prev_vel) <= amax * dt + 1e-6, "velocity jump (brake seed?)"
+        prev_vel = final_vel
         if harness.get_output("done"):
             break
 
     assert harness.get_output("done") is True
     assert final_pos == pytest.approx(1.0, abs=1e-3)
     assert abs(final_vel) <= vmax + 1e-3
+
+
+# ---------------------------------------------------------------------------
+# v0.4 multi-DoF: time synchronization (every axis arrives at the same instant).
+# ---------------------------------------------------------------------------
+
+
+def test_two_dof_reaches_both_targets(harness):
+    """2 DoFs, unequal displacement: both reach target at the SAME final cycle."""
+    inp = default_input()
+    inp["nDofs"] = 2
+    inp["enabled"] = [True, True, False, False]
+    inp["targetPosition"] = [1.0, 5.0, 0.0, 0.0]  # axis1 is the slow (limiting) axis
+    inp["maxVelocity"] = [2.0] * 4
+    inp["maxAcceleration"] = [5.0] * 4
+    inp["maxJerk"] = [10.0] * 4
+
+    p0 = p1 = 0.0
+    for _cycle in range(1000):
+        harness.set_inputs(enable=True, input=inp, cycleTime=0.010, reset=False)
+        harness.execute()
+        assert harness.get_output("error") is False
+        out = harness.get_output("output")
+        p0 = out.newPosition[0]
+        p1 = out.newPosition[1]
+        if harness.get_output("done"):
+            break
+
+    assert harness.get_output("done") is True
+    assert p0 == pytest.approx(1.0, abs=1e-3)
+    assert p1 == pytest.approx(5.0, abs=1e-3)
+
+
+def test_two_dof_fast_axis_arrives_with_slow_axis(harness):
+    """The fast axis must NOT finish early: it is re-timed to t_sync (still moving
+    near the end, i.e. it does not sit parked at its target for many cycles)."""
+    inp = default_input()
+    inp["nDofs"] = 2
+    inp["enabled"] = [True, True, False, False]
+    inp["targetPosition"] = [0.5, 8.0, 0.0, 0.0]  # axis0 tiny move, axis1 long
+    inp["maxVelocity"] = [2.0] * 4
+    inp["maxAcceleration"] = [5.0] * 4
+    inp["maxJerk"] = [10.0] * 4
+
+    # Track when each axis first reaches its target (within tol).
+    reached0 = reached1 = None
+    cyc = 0
+    for cyc in range(2000):
+        harness.set_inputs(enable=True, input=inp, cycleTime=0.010, reset=False)
+        harness.execute()
+        out = harness.get_output("output")
+        if reached0 is None and abs(out.newPosition[0] - 0.5) < 1e-3:
+            reached0 = cyc
+        if reached1 is None and abs(out.newPosition[1] - 8.0) < 1e-3:
+            reached1 = cyc
+        if harness.get_output("done"):
+            break
+
+    assert harness.get_output("done") is True
+    assert reached0 is not None and reached1 is not None
+    # Synchronized: both axes settle on their target within a few cycles of each
+    # other (the fast axis was stretched to t_sync, not finished long before).
+    assert abs(reached0 - reached1) <= 5
+
+
+def test_minimum_duration_stretches_single_axis(harness):
+    """1 DoF with minimumDuration > t_min: trajectory lasts at least that long."""
+    inp = default_input()
+    inp["nDofs"] = 1
+    inp["targetPosition"][0] = 1.0
+    inp["minimumDuration"] = 3.0  # force a slow move (natural t_min < 3 s)
+
+    duration = 0.0
+    for _cycle in range(600):
+        harness.set_inputs(enable=True, input=inp, cycleTime=0.010, reset=False)
+        harness.execute()
+        assert harness.get_output("error") is False
+        out = harness.get_output("output")
+        duration = out.trajectoryDuration
+        if harness.get_output("done"):
+            break
+
+    assert harness.get_output("done") is True
+    assert duration == pytest.approx(3.0, abs=1e-2)
+    assert harness.get_output("output").newPosition[0] == pytest.approx(1.0, abs=1e-3)
 
 

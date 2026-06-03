@@ -36,6 +36,7 @@ def make_valid_input(**overrides) -> dict:
         "maxJerk": [10.0, 10.0, 10.0, 10.0],
         "enabled": [True, False, False, False],
         "nDofs": 1,
+        "minimumDuration": -1.0,
         "controlInterface": 0,
         "synchronization": 0,
         "durationDiscretization": 0,

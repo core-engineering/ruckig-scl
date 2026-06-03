@@ -1,0 +1,10 @@
+name: v0.4 3-DoF mixed limits
+# Three axes with different displacements AND different per-axis limits, so the
+# limiting DoF is not simply the longest move. Confirms Synchronize picks the
+# correct t_sync and limiting axis with heterogeneous limits.
+n_dofs: 3
+target_position: [1.0, 5.0, 2.0]
+max_velocity: [2.0, 3.0, 2.0]
+max_acceleration: [5.0, 5.0, 4.0]
+max_jerk: [10.0, 10.0, 10.0]
+cycle_time: 0.010

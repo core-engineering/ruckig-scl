@@ -37,6 +37,7 @@ def _kwargs_from_scenario(data: dict) -> dict:
         "max_acc": data["max_acceleration"],
         "max_jerk": data["max_jerk"],
         "cycle_time": data.get("cycle_time", 0.010),
+        "minimum_duration": data.get("minimum_duration", -1.0),
     }
 
 

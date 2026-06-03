@@ -1,0 +1,11 @@
+name: v0.4 2-DoF moving targets
+# Both axes cruise through their targets at nonzero target velocity, with unequal
+# displacement so the slower axis sets t_sync. Combines time synchronization
+# with the v0.2 moving-target boundary conditions.
+n_dofs: 2
+target_position: [1.0, 5.0]
+target_velocity: [0.5, 0.3]
+max_velocity: [2.0, 2.0]
+max_acceleration: [5.0, 5.0]
+max_jerk: [10.0, 10.0]
+cycle_time: 0.010

@@ -11,6 +11,7 @@ TYPE
         maxJerk                : Array[0..3] of LReal;
         enabled                : Array[0..3] of Bool;
         nDofs                  : DInt := 1;
+        minimumDuration        : LReal := -1.0;   // sentinel < 0 = none (time sync)
         controlInterface       : Int := 0;
         synchronization        : Int := 0;
         durationDiscretization : Int := 0;

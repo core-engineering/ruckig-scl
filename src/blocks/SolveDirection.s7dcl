@@ -12,6 +12,10 @@ FUNCTION "SolveDirection" : Void
         bestDuration : LReal;
         found        : Bool;
         bestSjMax    : LReal;
+        // v0.4: collect every valid candidate duration (for the Block intervals).
+        // ComputeProfile1Axis passes scratch it ignores; ComputeBlock1Axis uses it.
+        allDur       : Array[0..7] of LReal;
+        allCount     : Int;
     END_VAR
     VAR_INPUT
         p0    : LReal;
@@ -176,6 +180,10 @@ FUNCTION "SolveDirection" : Void
                 FOR #i := 0 TO 6 DO
                     #dur := #dur + #profile.t[#i];
                 END_FOR;
+                IF #allCount <= 7 THEN
+                    #allDur[#allCount] := #dur;
+                    #allCount := #allCount + 1;
+                END_IF;
                 IF #dur < #bestDuration THEN
                     #bestDuration := #dur;
                     #found := true;
@@ -212,7 +220,11 @@ FUNCTION "SolveDirection" : Void
                     FOR #i := 0 TO 6 DO
                         #dur := #dur + #profile.t[#i];
                     END_FOR;
-                    IF #dur < #bestDuration THEN
+                    IF #allCount <= 7 THEN
+                    #allDur[#allCount] := #dur;
+                    #allCount := #allCount + 1;
+                END_IF;
+                IF #dur < #bestDuration THEN
                         #bestDuration := #dur;
                         #found := true;
                         #bestSjMax := #sjMax;
@@ -249,7 +261,11 @@ FUNCTION "SolveDirection" : Void
                     FOR #i := 0 TO 6 DO
                         #dur := #dur + #profile.t[#i];
                     END_FOR;
-                    IF #dur < #bestDuration THEN
+                    IF #allCount <= 7 THEN
+                    #allDur[#allCount] := #dur;
+                    #allCount := #allCount + 1;
+                END_IF;
+                IF #dur < #bestDuration THEN
                         #bestDuration := #dur;
                         #found := true;
                         #bestSjMax := #sjMax;
@@ -293,7 +309,11 @@ FUNCTION "SolveDirection" : Void
                     FOR #i := 0 TO 6 DO
                         #dur := #dur + #profile.t[#i];
                     END_FOR;
-                    IF #dur < #bestDuration THEN
+                    IF #allCount <= 7 THEN
+                    #allDur[#allCount] := #dur;
+                    #allCount := #allCount + 1;
+                END_IF;
+                IF #dur < #bestDuration THEN
                         #bestDuration := #dur;
                         #found := true;
                         #bestSjMax := #sjMax;
@@ -347,7 +367,11 @@ FUNCTION "SolveDirection" : Void
                         FOR #i := 0 TO 6 DO
                             #dur := #dur + #profile.t[#i];
                         END_FOR;
-                        IF #dur < #bestDuration THEN
+                        IF #allCount <= 7 THEN
+                    #allDur[#allCount] := #dur;
+                    #allCount := #allCount + 1;
+                END_IF;
+                IF #dur < #bestDuration THEN
                             #bestDuration := #dur;
                             #found := true;
                             #bestSjMax := #sjMax;
@@ -375,7 +399,11 @@ FUNCTION "SolveDirection" : Void
                         FOR #i := 0 TO 6 DO
                             #dur := #dur + #profile.t[#i];
                         END_FOR;
-                        IF #dur < #bestDuration THEN
+                        IF #allCount <= 7 THEN
+                    #allDur[#allCount] := #dur;
+                    #allCount := #allCount + 1;
+                END_IF;
+                IF #dur < #bestDuration THEN
                             #bestDuration := #dur;
                             #found := true;
                             #bestSjMax := #sjMax;
@@ -460,7 +488,11 @@ FUNCTION "SolveDirection" : Void
                         FOR #i := 0 TO 6 DO
                             #dur := #dur + #profile.t[#i];
                         END_FOR;
-                        IF #dur < #bestDuration THEN
+                        IF #allCount <= 7 THEN
+                    #allDur[#allCount] := #dur;
+                    #allCount := #allCount + 1;
+                END_IF;
+                IF #dur < #bestDuration THEN
                             #bestDuration := #dur;
                             #found := true;
                             #bestSjMax := #sjMax;
@@ -529,7 +561,11 @@ FUNCTION "SolveDirection" : Void
                         FOR #i := 0 TO 6 DO
                             #dur := #dur + #profile.t[#i];
                         END_FOR;
-                        IF #dur < #bestDuration THEN
+                        IF #allCount <= 7 THEN
+                    #allDur[#allCount] := #dur;
+                    #allCount := #allCount + 1;
+                END_IF;
+                IF #dur < #bestDuration THEN
                             #bestDuration := #dur;
                             #found := true;
                             #bestSjMax := #sjMax;
@@ -640,7 +676,11 @@ FUNCTION "SolveDirection" : Void
                         FOR #i := 0 TO 6 DO
                             #dur := #dur + #profile.t[#i];
                         END_FOR;
-                        IF #dur < #bestDuration THEN
+                        IF #allCount <= 7 THEN
+                    #allDur[#allCount] := #dur;
+                    #allCount := #allCount + 1;
+                END_IF;
+                IF #dur < #bestDuration THEN
                             #bestDuration := #dur;
                             #found := true;
                             #bestSjMax := #sjMax;

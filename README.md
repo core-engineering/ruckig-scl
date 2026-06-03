@@ -4,11 +4,22 @@ A Siemens SCL (Structured Text) port of the [Ruckig](https://github.com/pantor/r
 Online Trajectory Generation library, for S7-1500 PLCs. MIT-licensed (same as
 upstream Ruckig).
 
-**Status: v0.3.0 — adds single-axis step2 (re-timing to an imposed duration
-`tf >= t_min`), the foundation for v0.4 multi-axis time synchronization. Builds
-on the v0.2.1 time-optimal (step1) single-axis solver.**
+**Status: v0.4.0 — multi-axis (up to 4 DoF) time synchronization: every axis
+reaches its target at the same instant `t_sync`. Wires the v0.3 single-axis
+step2 into Ruckig's full Block → synchronize → re-time pipeline, on top of the
+v0.2.1 time-optimal (step1) single-axis solver.**
 
-## Features (v0.2)
+## Features (v0.4)
+
+- **Multi-axis time synchronization** (≤ 4 DoF): per-axis reachable-duration
+  `Block` (with blocked intervals) → common `t_sync` → step2 re-time of every
+  axis, so all axes arrive together. Matches Ruckig to ~1e-15.
+- **`minimumDuration`** input — impose a floor on the trajectory duration
+  (routes even a single DoF through step2).
+- Single-axis **step2** (re-timing an arbitrary move to an imposed duration
+  `tf >= t_min`): 8 profile families × 2 directions (UDDU and UDUD).
+
+## Features (single-axis, v0.2)
 
 - Single-axis jerk-limited (S-curve), **time-optimal** trajectory generation
   for arbitrary `(p0, v0, a0) → (pT, vT, aT)` within symmetric limits
@@ -25,21 +36,21 @@ on the v0.2.1 time-optimal (step1) single-axis solver.**
   agrees to the floating-point floor (~1e-15) across all profile families;
   cyclic rest-to-rest / zero-target-velocity parity holds to 1e-6
 
-### Known limitations (v0.2.1)
+### Known limitations (v0.4)
 
-- **Two-step solver fallbacks not yet ported.** For ~3% of arbitrary
+- **No brake pre-phase in the multi-axis path.** Multi-DoF assumes the initial
+  states are within limits; the brake machinery runs only on the single-axis
+  path. Full brake machinery is deferred to v0.7.
+- **Time synchronization only.** `Phase` / `None` / per-DoF synchronization
+  modes and duration discretization are not implemented.
+- **step1 two-step fallbacks not yet ported.** For ~3% of arbitrary
   initial/target state combinations the three main profile families yield no
   feasible profile and the solver returns `RESULT_ERR_SOLVER` (Ruckig recovers
-  these via its `time_*_two_step` paths). Deferred to a dedicated pass; a few
-  further cases solve feasibly but not yet time-optimally.
-- The brake pre-phase brakes correctly and reaches the target, but rides a
-  once-computed brake + main concatenation that is feasible, **not**
-  time-optimal. Full brake machinery is deferred to v0.7.
+  these via its `time_*_two_step` paths). Deferred to a dedicated pass.
 
-Resolved in v0.2.1: moving targets now match Ruckig to ~1e-15 on **every**
-cycle (the FB extrapolates past `duration` exactly as Ruckig does), and the
-feasibility check no longer misses velocity peaks that occur between phase
-nodes.
+Resolved earlier: moving targets match Ruckig to ~1e-15 on **every** cycle
+(v0.2.1), and the over-`vMax` first-enable brake seed is now C1-continuous
+(v0.4).
 
 ## Architecture
 
@@ -47,21 +58,26 @@ One stateful FB orchestrating pure algorithmic FCs, called once per PLC cycle:
 
 | Block | Role |
 |-------|------|
-| `RuckigOtg` (FB) | Lifecycle: validate → detect change → (brake +) recompute → advance → evaluate; `pass_to_input` chaining |
+| `RuckigOtg` (FB) | Lifecycle: validate → detect change → recompute → advance → evaluate. Multi-DoF: `Block` per axis → `Synchronize` → step2 re-time per axis. Single-DoF keeps the v0.3 step1 path. `pass_to_input` chaining |
+| `ComputeBlock1Axis` (FC) | step1 → reachable-duration `Block` (`tMin` + blocked intervals) |
+| `Synchronize` (FC) | Common `t_sync` ≥ max(`tMin`) avoiding every axis's blocked intervals; limiting axis |
+| `ComputeProfile1AxisTimed` (FC) | Single-DoF step2: re-time a move to an imposed duration `tf` (8 families × 2 directions) |
 | `ValidateInput` (FC) | Finiteness / positive-limit / nDofs checks (DA014 codes) |
 | `IsFiniteLreal` (FC) | NaN / Inf guard |
 | `ComputeProfile1Dof` (FC, `ComputeProfile1Axis`) | General time-optimal single-DoF solver (enumerate families × directions, select min-duration) |
-| `SolveDirection` (FC) | Runs the three profile families for one jerk direction |
+| `SolveDirection` (FC) | Runs the profile families for one jerk direction |
 | `SolveCubic` / `SolveQuartic` (FC) | Closed-form real-root solvers (Cardano / Ferrari) |
+| `PolyEval` / `ShrinkInterval` (FC) | Horner evaluation + safe-Newton root bracketing (step2 degree-5/6 roots) |
 | `IntegrateProfileStates` (FC) | Fill `a/v/p` from `t/j` + initial state |
 | `CheckProfile` (FC) | Validate a candidate profile by integration |
 | `ComputeBrakeProfile` (FC) | Brake sub-profile for an out-of-limits initial state |
 | `AdvanceTime` / `StateAtTime` (FC) | Integrate time, evaluate p/v/a (brake prefix first) |
 
 Data is carried by UDTs (`typeRuckigInput`, `typeRuckigOutput`, `typeProfile`,
-`typeTrajectory`, `typeBrakeProfile`). See the design specs under
-[docs/superpowers/specs/](docs/superpowers/specs/)
-(`2026-05-28-…-port-design.md` for v0.1, `2026-05-30-…-v0.2-design.md` for v0.2).
+`typeTrajectory`, `typeBrakeProfile`, `typeBlock`, `typeBlockSet`). See the
+design specs under [docs/superpowers/specs/](docs/superpowers/specs/)
+(`2026-05-28-…-port-design.md` for v0.1, `2026-05-30-…-v0.2-design.md` for v0.2,
+`2026-06-02-…-v0.3-design.md` for v0.3, `2026-06-03-…-v0.4-design.md` for v0.4).
 
 ## Target platform
 
@@ -100,6 +116,11 @@ instOtg(enable    := TRUE,
 
 See [`examples/single-axis-point-to-point/`](examples/single-axis-point-to-point/).
 
+For multi-axis motion, set `otgInput.nDofs := N` (≤ 4) and fill the per-DoF
+arrays (`maxVelocity[d]`, `targetPosition[d]`, …) for each axis; the FB
+time-synchronizes them so all axes reach their targets together. Set
+`otgInput.minimumDuration` (≥ 0) to impose a minimum trajectory duration.
+
 ## Tests
 
 The SCL blocks are tested in Python via the
@@ -111,7 +132,7 @@ uv sync                       # core deps (offline-installable)
 uv run pytest tests/unit      # unit tests
 
 uv sync --extra parity        # adds the Ruckig reference (PyPI: ruckig)
-uv run pytest tests/parity    # 18 cross-implementation parity scenarios
+uv run pytest tests/parity    # 27 cross-implementation parity scenarios
 ```
 
 ## Roadmap
@@ -119,8 +140,10 @@ uv run pytest tests/parity    # 18 cross-implementation parity scenarios
 | Version | Scope |
 |---------|-------|
 | v0.1 | Single-axis, rest-to-rest, position interface |
-| v0.2 | Single-axis with arbitrary initial / target velocity & acceleration *(this release)* |
-| v0.3–v0.5 | Multi-axis with time synchronization |
+| v0.2 | Single-axis with arbitrary initial / target velocity & acceleration |
+| v0.3 | Single-axis step2 (re-time to an imposed duration) |
+| v0.4 | Multi-axis time synchronization *(this release)* |
+| v0.5 | Synchronization modes (Phase / per-DoF), duration discretization |
 | v0.6 | Velocity interface |
 | v0.7 | Brake profiles and degenerate cases |
 | v0.8 | Performance optimization |
