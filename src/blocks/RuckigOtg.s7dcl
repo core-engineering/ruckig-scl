@@ -160,6 +160,9 @@ FUNCTION_BLOCK "RuckigOtg"
                 IF ABS(#input.minimumDuration - #prevInput.minimumDuration) > "dbRuckigConst".EPS_TIME THEN
                     #recomputeRequired := true;
                 END_IF;
+                IF #input.synchronization <> #prevInput.synchronization THEN
+                    #recomputeRequired := true;
+                END_IF;
             END_IF;
         END_REGION
 

@@ -18,7 +18,7 @@ def default_input() -> dict:
         "nDofs": 1,
         "minimumDuration": -1.0,
         "controlInterface": 0,
-        "synchronization": 0,
+        "synchronization": 2,
         "durationDiscretization": 0,
     }
 

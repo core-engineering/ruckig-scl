@@ -9,6 +9,7 @@ DATA_BLOCK dbRuckigConst
         EPS_VELOCITY          : LReal := 1.0E-12;
         EPS_POSITION          : LReal := 1.0E-12;
         EPS_DERIV             : LReal := 1.0E-8;
+        EPS_PHASE             : LReal := 1.0E-9;
         PI                    : LReal := 3.141592653589793;
 
         RESULT_FINISHED       : Word  := 16#0000;

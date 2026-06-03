@@ -61,7 +61,7 @@ def run_scl(
         "nDofs": n_dofs,
         "minimumDuration": minimum_duration,
         "controlInterface": 0,
-        "synchronization": 0,
+        "synchronization": 2,
         "durationDiscretization": 0,
     }
 
