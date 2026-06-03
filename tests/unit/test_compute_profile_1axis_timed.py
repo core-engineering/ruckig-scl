@@ -255,6 +255,22 @@ def test_none_valid(harness, v0, a0, vT, aT, pd, k):
     _assert_timed_valid(harness, *args, _t_min(*args) * k)
 
 
+def test_blocked_tf_returns_err_solver(harness):
+    """A tf inside a blocked interval is NOT reachable (Ruckig allocates a
+    longer duration than the requested minimum). step2 has no profile landing on
+    that tf exactly, so it correctly returns RESULT_ERR_SOLVER. Handling blocked
+    intervals belongs to the Block/synchronization layer (v0.4), not step2.
+    Example: (v0=1,a0=0,vT=1,aT=0,pd=0.3) at tf = t_min*1.1 — Ruckig's own
+    duration jumps to ~1.70s, confirming tf is blocked."""
+    args = (0.0, 1.0, 0.0, 0.3, 1.0, 0.0)
+    tf = _t_min(*args) * 1.1
+    # confirm the oracle itself cannot land on tf (blocked interval)
+    tr = _oracle_timed(*args, tf)
+    assert tr.duration > tf + 1e-3, "precondition: tf is blocked for the oracle"
+    st, _ = _run_timed(harness, *args, tf)
+    assert st == 0x8602  # RESULT_ERR_SOLVER (no profile reaches the blocked tf)
+
+
 def test_oracle_timed_reaches_target():
     """The stretched trajectory still reaches the final state at tf."""
     args = (0.0, 0.5, 0.0, 1.0, 0.5, 0.0)
