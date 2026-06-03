@@ -59,8 +59,8 @@ FUNCTION_BLOCK "RuckigOtg"
         limitingAxis : Int;
         syncHandled  : Bool;
         axDur        : LReal;
-        phaseDur     : LReal;
-        phaseDone    : Bool;
+        phaseDur     : LReal;    // reserved for SYNC_PHASE branch (Task 4)
+        phaseDone    : Bool;     // reserved for SYNC_PHASE branch (Task 4)
         // StateAtTime sampling scratch
         op : LReal;
         ov : LReal;

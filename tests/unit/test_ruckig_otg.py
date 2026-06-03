@@ -317,6 +317,7 @@ def test_sync_no_axes_finish_independently(harness):
             reached0 = cyc
         if harness.get_output("done"):
             break
+    assert harness.get_output("done") is True
     assert reached0 is not None and reached0 < 200
     assert harness.get_output("output").newPosition[0] == pytest.approx(1.0, abs=1e-3)
     assert harness.get_output("output").newPosition[1] == pytest.approx(8.0, abs=1e-3)
