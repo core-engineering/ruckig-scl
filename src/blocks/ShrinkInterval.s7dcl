@@ -1,0 +1,121 @@
+{
+    S7_Author := "Martin C";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.3.0"
+}
+FUNCTION "ShrinkInterval" : LReal
+    VAR_INPUT
+        p : Array[0..6] of LReal;
+        n : Int;
+        l : LReal;
+        h : LReal;
+    END_VAR
+    VAR_TEMP
+        deriv : Array[0..6] of LReal;
+        nd    : Int;
+        ll    : LReal;
+        hh    : LReal;
+        fl    : LReal;
+        fh    : LReal;
+        rts   : LReal;
+        dxold : LReal;
+        dx    : LReal;
+        f     : LReal;
+        df    : LReal;
+        temp  : LReal;
+        tmp   : LReal;
+        i     : Int;
+        j     : Int;
+        done  : Bool;
+    END_VAR
+    VAR CONSTANT
+        TOL : LReal := 1.0E-14;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      ShrinkInterval
+            // Function:   Single real root of polynomial p in [l,h] by safe
+            //             Newton (bisection fallback). Requires p(l)*p(h) < 0.
+            //             Port of Ruckig roots.hpp shrink_interval (maxIts=128).
+            //             p[0] = highest-degree coeff; n coeffs (degree n-1).
+            // Family:     Ruckig
+            // Author:     Martin C
+            //==========================================================
+        END_REGION
+
+        REGION Bracket and endpoints
+            #ll := #l;
+            #hh := #h;
+            #fl := "PolyEval"(p := #p, n := #n, x := #ll);
+            #fh := "PolyEval"(p := #p, n := #n, x := #hh);
+            IF #fl = 0.0 THEN
+                #ShrinkInterval := #ll;
+                RETURN;
+            END_IF;
+            IF #fh = 0.0 THEN
+                #ShrinkInterval := #hh;
+                RETURN;
+            END_IF;
+            IF #fl > 0.0 THEN
+                #tmp := #ll;
+                #ll := #hh;
+                #hh := #tmp;
+            END_IF;
+        END_REGION
+
+        REGION Derivative coefficients
+            #nd := #n - 1;
+            FOR #i := 0 TO #nd - 1 DO
+                #deriv[#i] := INT_TO_LREAL(#n - 1 - #i) * #p[#i];
+            END_FOR;
+        END_REGION
+
+        REGION Safe Newton iteration
+            #rts := (#ll + #hh) / 2.0;
+            #dxold := ABS(#hh - #ll);
+            #dx := #dxold;
+            #f := "PolyEval"(p := #p, n := #n, x := #rts);
+            #df := "PolyEval"(p := #deriv, n := #nd, x := #rts);
+            #done := false;
+            FOR #j := 0 TO 127 DO
+                IF NOT #done THEN
+                    IF (((#rts - #hh) * #df - #f) * ((#rts - #ll) * #df - #f) > 0.0) OR (ABS(2.0 * #f) > ABS(#dxold * #df)) THEN
+                        #dxold := #dx;
+                        #dx := (#hh - #ll) / 2.0;
+                        #rts := #ll + #dx;
+                        IF #ll = #rts THEN
+                            #done := true;
+                        END_IF;
+                    ELSE
+                        #dxold := #dx;
+                        #dx := #f / #df;
+                        #temp := #rts;
+                        #rts := #rts - #dx;
+                        IF #temp = #rts THEN
+                            #done := true;
+                        END_IF;
+                    END_IF;
+                    IF NOT #done THEN
+                        IF ABS(#dx) < #TOL THEN
+                            #done := true;
+                        ELSE
+                            #f := "PolyEval"(p := #p, n := #n, x := #rts);
+                            #df := "PolyEval"(p := #deriv, n := #nd, x := #rts);
+                            IF #f < 0.0 THEN
+                                #ll := #rts;
+                            ELSE
+                                #hh := #rts;
+                            END_IF;
+                        END_IF;
+                    END_IF;
+                END_IF;
+            END_FOR;
+            #ShrinkInterval := #rts;
+        END_REGION
+    END_NETWORK
+END_FUNCTION
