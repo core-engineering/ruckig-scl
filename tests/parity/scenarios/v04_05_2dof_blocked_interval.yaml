@@ -1,0 +1,18 @@
+name: v0.4 2-DoF synchronization across a blocked interval
+# THE key Block scenario. Axis 0 is a braking-type move (v0=1 vs small pd=0.3):
+# its reachable-duration Block has a blocked interval (~0.309 .. 1.698) — those
+# durations are physically unachievable. Axis 1 is a plain 1 m rest move with
+# t_min ~ 1.493, which lands INSIDE axis 0's blocked interval.
+#
+# So max(t_min) = 1.493 is blocked for axis 0; Synchronize must skip it and
+# advance t_sync to the interval's right edge ~1.698. Ruckig does the same, so
+# the duration and every cycle match exactly. Exercises the blocked-interval
+# skip in Synchronize end-to-end.
+n_dofs: 2
+current_velocity: [1.0, 0.0]
+target_position: [0.3, 1.0]
+target_velocity: [1.0, 0.0]
+max_velocity: [2.0, 2.0]
+max_acceleration: [3.0, 3.0]
+max_jerk: [10.0, 10.0]
+cycle_time: 0.010

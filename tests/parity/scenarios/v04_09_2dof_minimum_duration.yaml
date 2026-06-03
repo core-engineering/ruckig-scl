@@ -1,0 +1,11 @@
+name: v0.4 2-DoF minimum_duration stretch
+# Two synchronized axes whose natural t_sync (~3.39 s) is overridden by a longer
+# minimum_duration of 4.0 s: both axes are re-timed (step2) to 4.0 s. Combines
+# time synchronization with the minimum_duration floor.
+n_dofs: 2
+target_position: [1.0, 5.0]
+max_velocity: [2.0, 2.0]
+max_acceleration: [5.0, 5.0]
+max_jerk: [10.0, 10.0]
+minimum_duration: 4.0
+cycle_time: 0.010

@@ -1,0 +1,15 @@
+name: v0.4 2-DoF full arbitrary states
+# Both axes start and end with nonzero velocity AND acceleration, opposite signs,
+# different per-axis limits. The fully general multi-DoF boundary-condition path
+# combined with time synchronization.
+n_dofs: 2
+current_position: [0.2, -0.3]
+current_velocity: [0.5, 1.0]
+current_acceleration: [0.3, -0.2]
+target_position: [2.0, -3.0]
+target_velocity: [0.2, -0.5]
+target_acceleration: [0.1, 0.3]
+max_velocity: [2.5, 2.5]
+max_acceleration: [5.0, 5.0]
+max_jerk: [12.0, 12.0]
+cycle_time: 0.010

@@ -1,0 +1,11 @@
+name: v0.4 2-DoF rest-to-rest time sync
+# Two axes, unequal displacement (1 m vs 5 m), both rest-to-rest with the same
+# limits. The long axis (5 m) is the limiting DoF; the short axis is re-timed
+# (step2) to the common t_sync so both arrive together. Basic time
+# synchronization. Parity at the floating-point floor on every cycle.
+n_dofs: 2
+target_position: [1.0, 5.0]
+max_velocity: [2.0, 2.0]
+max_acceleration: [5.0, 5.0]
+max_jerk: [10.0, 10.0]
+cycle_time: 0.010

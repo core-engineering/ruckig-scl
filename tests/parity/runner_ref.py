@@ -44,6 +44,7 @@ def run_reference(
     max_acc: list[float],
     max_jerk: list[float],
     cycle_time: float,
+    minimum_duration: float = -1.0,
     max_cycles: int = 2000,
 ) -> TrajectoryTrace:
     """Run Ruckig with the given inputs and return a cycle-by-cycle trace."""
@@ -60,6 +61,8 @@ def run_reference(
     inp.max_velocity = max_vel[:n_dofs]
     inp.max_acceleration = max_acc[:n_dofs]
     inp.max_jerk = max_jerk[:n_dofs]
+    if minimum_duration >= 0.0:
+        inp.minimum_duration = minimum_duration
 
     trace = TrajectoryTrace()
     for cycle in range(max_cycles):
