@@ -99,10 +99,12 @@ FUNCTION "ComputeProfile1AxisTimed" : Word
             // ACC0 cases (wrong trajectory). acc0/none are still stubs (no-op).
             "SolveTimedAcc0Acc1"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMax, svMin := #svMin, saMax := #saMax, saMin := #saMin, sjMax := #sjMax, tf := #tf);
             "SolveTimedAcc0"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMax, svMin := #svMin, saMax := #saMax, saMin := #saMin, sjMax := #sjMax, tf := #tf);
+            "SolveTimedAcc1"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMax, svMin := #svMin, saMax := #saMax, saMin := #saMin, sjMax := #sjMax, tf := #tf);
             "SolveTimedNone"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMax, svMin := #svMin, saMax := #saMax, saMin := #saMin, sjMax := #sjMax, tf := #tf);
 
             "SolveTimedAcc0Acc1"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMin, svMin := #svMax, saMax := #saMin, saMin := #saMax, sjMax := -#sjMax, tf := #tf);
             "SolveTimedAcc0"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMin, svMin := #svMax, saMax := #saMin, saMin := #saMax, sjMax := -#sjMax, tf := #tf);
+            "SolveTimedAcc1"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMin, svMin := #svMax, saMax := #saMin, saMin := #saMax, sjMax := -#sjMax, tf := #tf);
             "SolveTimedNone"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMin, svMin := #svMax, saMax := #saMin, saMin := #saMax, sjMax := -#sjMax, tf := #tf);
         END_REGION
 

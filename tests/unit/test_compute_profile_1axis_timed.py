@@ -189,6 +189,58 @@ def test_vel_udud(harness, v0, a0, vT, aT, pd, k):
     _assert_timed_parity(harness, *args, _t_min(*args) * k)
 
 
+def _assert_timed_valid(harness, p0, v0, a0, pT, vT, aT, tf, vM=_VMAX, aM=_AMAX):
+    """step2 VALIDITY check (not strict Ruckig parity): the SCL profile must
+    reach the final state at exactly tf and respect the limits, including
+    interior velocity extrema. For the no-plateau families (NONE/ACC0/ACC1) at
+    an imposed tf there are several valid shapes; Ruckig and the SCL solver may
+    pick different-but-both-valid ones, so we check validity, not identity."""
+    st, prof = _run_timed(harness, p0, v0, a0, pT, vT, aT, tf)
+    assert st == 0x7000, f"expected WORKING, got {hex(st)}"
+    t = [prof.t[i] for i in range(7)]
+    j = [prof.j[i] for i in range(7)]
+    assert sum(t) == pytest.approx(tf, abs=1e-7)
+    a, v, p = [a0], [v0], [p0]
+    peak_v = abs(v0)
+    for i in range(7):
+        a1 = a[i] + j[i] * t[i]
+        if a[i] * a1 < 0.0 and j[i] != 0.0 and i >= 2:  # interior velocity extremum
+            peak_v = max(peak_v, abs(v[i] - a[i] * a[i] / (2.0 * j[i])))
+        v.append(v[i] + a[i] * t[i] + 0.5 * j[i] * t[i] ** 2)
+        p.append(p[i] + v[i] * t[i] + 0.5 * a[i] * t[i] ** 2 + j[i] * t[i] ** 3 / 6.0)
+        a.append(a1)
+        peak_v = max(peak_v, abs(v[i + 1]))
+    assert p[7] == pytest.approx(pT, abs=1e-5), "reaches target position"
+    assert v[7] == pytest.approx(vT, abs=1e-5), "reaches target velocity"
+    assert a[7] == pytest.approx(aT, abs=1e-5), "reaches target acceleration"
+    assert peak_v <= vM + 1e-6, f"velocity within limit (peak {peak_v})"
+    assert max(abs(x) for x in a) <= aM + 1e-6, "acceleration within limit"
+
+
+# T12/T11: ACC1 / ACC0 no-plateau families. Validity (not strict parity): these
+# reach the state at tf within limits via a valid shape. (v0,a0,vT,aT,pd,k).
+_ACC1_CASES = [
+    (-1.5, 0.0, 1.0, -3.0, 0.3, 1.1),
+    (1.0, -3.0, 0.0, -3.0, 0.3, 1.0),
+]
+_ACC0_CASES = [
+    (0.0, 2.0, 1.0, 2.0, 0.3, 1.0),
+    (1.0, 2.0, -1.5, -3.0, 0.3, 1.1),
+]
+
+
+@pytest.mark.parametrize("v0,a0,vT,aT,pd,k", _ACC1_CASES)
+def test_acc1_valid(harness, v0, a0, vT, aT, pd, k):
+    args = (0.0, v0, a0, pd, vT, aT)
+    _assert_timed_valid(harness, *args, _t_min(*args) * k)
+
+
+@pytest.mark.parametrize("v0,a0,vT,aT,pd,k", _ACC0_CASES)
+def test_acc0_valid(harness, v0, a0, vT, aT, pd, k):
+    args = (0.0, v0, a0, pd, vT, aT)
+    _assert_timed_valid(harness, *args, _t_min(*args) * k)
+
+
 def test_oracle_timed_reaches_target():
     """The stretched trajectory still reaches the final state at tf."""
     args = (0.0, 0.5, 0.0, 1.0, 0.5, 0.0)

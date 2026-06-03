@@ -24,17 +24,181 @@ FUNCTION "SolveTimedAcc0" : Void
         sjMax : LReal;
         tf    : LReal;
     END_VAR
+    VAR_TEMP
+        vMaxMag : LReal;
+        aMaxMag : LReal;
+        jMaxMag : LReal;
+        signJ : LReal;
+        pd    : LReal;
+        vd    : LReal;
+        vd_vd : LReal;
+        ad    : LReal;
+        ad_ad : LReal;
+        a0_a0 : LReal;
+        af_af : LReal;
+        a0_p3 : LReal;
+        af_p3 : LReal;
+        jMax_jMax : LReal;
+        tf_tf : LReal;
+        g1    : LReal;
+        h0    : LReal;
+        h1    : LReal;
+        h0a   : LReal;
+        h0b   : LReal;
+        h2    : LReal;
+        arg   : LReal;
+        num   : LReal;
+        ok    : Bool;
+    END_VAR
 
     { S7_Language := "SCL" }
     NETWORK
-        REGION Stub - implemented in a later v0.3 task
-            // step2 family time_Acc0 (re-time to tf). Ruckig
-            // position_third_step2.cpp. First-valid-wins: skip if already found.
-            // TODO(v0.3): port the UDDU[/UDUD] closed-form / quartic candidates,
-            // set profile.t/j, validate with "CheckProfile"(... tf := #tf), and
-            // set #found := true on success.
+        REGION Block header
+            //==========================================================
+            // Title:      SolveTimedAcc0
+            // Function:   step2 family time_acc0: re-time to tf a profile that
+            //             reaches +aMax. Three closed-form sub-cases (two UDUD,
+            //             one UDDU Solution 1). Port of Ruckig
+            //             position_third_step2.cpp l.626-687. First-valid-wins;
+            //             validity is enforced by CheckProfile (reach + limits
+            //             incl. interior velocity extrema), not by a structural
+            //             plateau guard (step2 admits multiple valid shapes).
+            // Family:     Ruckig
+            // Author:     Martin C
+            //==========================================================
+        END_REGION
+
+        REGION Skip if already solved
             IF #found THEN
                 RETURN;
+            END_IF;
+        END_REGION
+
+        REGION Precompute
+            #vMaxMag := ABS(#svMax);
+            #aMaxMag := ABS(#saMax);
+            #jMaxMag := ABS(#sjMax);
+            IF #sjMax >= 0.0 THEN
+                #signJ := 1.0;
+            ELSE
+                #signJ := -1.0;
+            END_IF;
+            #pd    := #pT - #p0;
+            #vd    := #vT - #v0;
+            #vd_vd := #vd * #vd;
+            #ad    := #aT - #a0;
+            #ad_ad := #ad * #ad;
+            #a0_a0 := #a0 * #a0;
+            #af_af := #aT * #aT;
+            #a0_p3 := #a0 * #a0_a0;
+            #af_p3 := #aT * #af_af;
+            #jMax_jMax := #sjMax * #sjMax;
+            #tf_tf := #tf * #tf;
+            #g1    := -#pd + #tf * #v0;
+        END_REGION
+
+        REGION UDUD (one plateau, NONE check)
+            #arg := #ad_ad / (2.0 * #jMax_jMax) - #ad * (#saMax - #a0) / #jMax_jMax + (#saMax * #tf - #vd) / #sjMax;
+            IF #arg >= 0.0 THEN
+                #h1 := SQRT(#arg);
+                #profile.t[0] := (#saMax - #a0) / #sjMax;
+                #profile.t[1] := #tf - #ad / #sjMax - 2.0 * #h1;
+                #profile.t[2] := #h1;
+                #profile.t[3] := 0.0;
+                #profile.t[4] := (#aT - #saMax) / #sjMax + #h1;
+                #profile.t[5] := 0.0;
+                #profile.t[6] := 0.0;
+                #profile.j[0] := #sjMax;
+                #profile.j[1] := 0.0;
+                #profile.j[2] := -#sjMax;
+                #profile.j[3] := 0.0;
+                #profile.j[4] := #sjMax;
+                #profile.j[5] := 0.0;
+                #profile.j[6] := -#sjMax;
+                #profile.direction := 1;
+                #profile.controlSigns := 1;
+                #ok := "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                    pT := #pT, vT := #vT, aT := #aT, vMax := #vMaxMag, aMax := #aMaxMag, tf := #tf);
+                IF #ok THEN
+                    #found := true;
+                    RETURN;
+                END_IF;
+            END_IF;
+        END_REGION
+
+        REGION UDDU (a3 != 0, NONE check)
+            #h0a := -#a0_a0 + #af_af - 2.0 * #ad * #saMax + 2.0 * #sjMax * (#saMax * #tf - #vd);
+            #h0b := #a0_p3 + 2.0 * #af_p3 - 6.0 * #af_af * #saMax - 3.0 * #a0_a0 * (#aT - #sjMax * #tf)
+                - 3.0 * #a0 * #saMax * (#saMax - 2.0 * #aT + 2.0 * #sjMax * #tf)
+                - 3.0 * #sjMax * (#sjMax * (-2.0 * #pd + #saMax * #tf_tf + 2.0 * #tf * #v0) + #saMax * (#saMax * #tf - 2.0 * #vd))
+                + 3.0 * #aT * (#saMax * #saMax + 2.0 * #saMax * #sjMax * #tf - 2.0 * #sjMax * #vd);
+            #arg := 4.0 * #h0b * #h0b - 18.0 * #h0a * #h0a * #h0a;
+            #h1 := 3.0 * #sjMax * #h0a;
+            IF #arg >= 0.0 AND ABS(#h1) > 1.0E-12 THEN
+                #h0 := #jMaxMag * SQRT(#arg);
+                #profile.t[0] := (-#a0 + #saMax) / #sjMax;
+                #num := -#a0_p3 + #af_p3 + #af_af * (-6.0 * #saMax + 3.0 * #sjMax * #tf)
+                    + #a0_a0 * (-3.0 * #aT + 6.0 * #saMax + 3.0 * #sjMax * #tf)
+                    + 6.0 * #aT * (#saMax * #saMax - #sjMax * #vd)
+                    + 3.0 * #a0 * (#af_af - 2.0 * (#saMax * #saMax + #sjMax * #vd))
+                    - 6.0 * #sjMax * (#saMax * (#saMax * #tf - 2.0 * #vd) + #sjMax * (-2.0 * #pd + #tf * (#v0 + #vT)));
+                #profile.t[1] := #num / #h1;
+                #num := #jMax_jMax;
+                #profile.t[2] := -(#ad + #h0 / #h1) / (2.0 * #sjMax) + #tf / 2.0 - #profile.t[1] / 2.0;
+                #profile.t[3] := #h0 / (#sjMax * #h1);
+                #profile.t[4] := 0.0;
+                #profile.t[5] := 0.0;
+                #profile.t[6] := #tf - (#profile.t[0] + #profile.t[1] + #profile.t[2] + #profile.t[3]);
+                #profile.j[0] := #sjMax;
+                #profile.j[1] := 0.0;
+                #profile.j[2] := -#sjMax;
+                #profile.j[3] := 0.0;
+                #profile.j[4] := -#sjMax;
+                #profile.j[5] := 0.0;
+                #profile.j[6] := #sjMax;
+                #profile.direction := 1;
+                #profile.controlSigns := 0;
+                #ok := "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                    pT := #pT, vT := #vT, aT := #aT, vMax := #vMaxMag, aMax := #aMaxMag, tf := #tf);
+                IF #ok THEN
+                    #found := true;
+                    RETURN;
+                END_IF;
+            END_IF;
+        END_REGION
+
+        REGION UDDU Solution 1 (reaches aMax)
+            #h0a := #a0_p3 + 2.0 * #af_p3 - 6.0 * (#af_af + #saMax * #saMax) * #saMax
+                - 6.0 * (#a0 + #aT) * #saMax * #sjMax * #tf + 9.0 * #saMax * #saMax * (#aT + #sjMax * #tf)
+                + 3.0 * #a0 * #saMax * (-2.0 * #aT + 3.0 * #saMax) + 3.0 * #a0_a0 * (#aT - 2.0 * #saMax + #sjMax * #tf)
+                - 6.0 * #jMax_jMax * #g1 + 6.0 * (#aT - #saMax) * #sjMax * #vd - 3.0 * #saMax * #jMax_jMax * #tf_tf;
+            #h0b := #a0_a0 + #af_af + 2.0 * (#saMax * #saMax - (#a0 + #aT) * #saMax + #sjMax * (#vd - #saMax * #tf));
+            #arg := 4.0 * #h0a * #h0a - 18.0 * #h0b * #h0b * #h0b;
+            #h2 := 6.0 * #sjMax * #h0b;
+            IF #arg >= 0.0 AND ABS(#h2) > 1.0E-12 THEN
+                #h1 := #signJ * SQRT(#arg);
+                #profile.t[0] := (-#a0 + #saMax) / #sjMax;
+                #profile.t[1] := #ad / #sjMax - 2.0 * #profile.t[0] - (2.0 * #h0a - #h1) / #h2 + #tf;
+                #profile.t[2] := -(2.0 * #h0a + #h1) / #h2;
+                #profile.t[3] := (2.0 * #h0a - #h1) / #h2;
+                #profile.t[4] := #tf - (#profile.t[0] + #profile.t[1] + #profile.t[2] + #profile.t[3]);
+                #profile.t[5] := 0.0;
+                #profile.t[6] := 0.0;
+                #profile.j[0] := #sjMax;
+                #profile.j[1] := 0.0;
+                #profile.j[2] := -#sjMax;
+                #profile.j[3] := 0.0;
+                #profile.j[4] := -#sjMax;
+                #profile.j[5] := 0.0;
+                #profile.j[6] := #sjMax;
+                #profile.direction := 1;
+                #profile.controlSigns := 0;
+                #ok := "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                    pT := #pT, vT := #vT, aT := #aT, vMax := #vMaxMag, aMax := #aMaxMag, tf := #tf);
+                IF #ok THEN
+                    #found := true;
+                    RETURN;
+                END_IF;
             END_IF;
         END_REGION
     END_NETWORK
