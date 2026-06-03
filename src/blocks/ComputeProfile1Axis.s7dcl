@@ -26,6 +26,9 @@ FUNCTION "ComputeProfile1Axis" : Word
         found        : Bool;
         bestSjMax    : LReal;
         bestT        : Array[0..6] of LReal;
+        // v0.4: SolveDirection's valid-duration collection (ignored here)
+        allDur       : Array[0..7] of LReal;
+        allCount     : Int;
         // finalise scratch
         i            : DInt;
     END_VAR
@@ -59,11 +62,13 @@ FUNCTION "ComputeProfile1Axis" : Word
             #bestDuration := 1.0E30;
             #found        := false;
             #bestSjMax    := #jMax;
+            #allCount     := 0;
         END_REGION
 
         REGION Solve positive direction
             "SolveDirection"(profile := #profile, bestT := #bestT,
                 bestDuration := #bestDuration, found := #found, bestSjMax := #bestSjMax,
+                allDur := #allDur, allCount := #allCount,
                 p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
                 svMax := #vMax, svMin := -#vMax, saMax := #aMax, saMin := -#aMax, sjMax := #jMax);
         END_REGION
@@ -75,6 +80,7 @@ FUNCTION "ComputeProfile1Axis" : Word
             // The shared running best keeps whichever direction is shorter.
             "SolveDirection"(profile := #profile, bestT := #bestT,
                 bestDuration := #bestDuration, found := #found, bestSjMax := #bestSjMax,
+                allDur := #allDur, allCount := #allCount,
                 p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
                 svMax := -#vMax, svMin := #vMax, saMax := -#aMax, saMin := #aMax, sjMax := -#jMax);
         END_REGION
