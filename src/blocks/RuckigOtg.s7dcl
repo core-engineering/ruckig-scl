@@ -3,7 +3,7 @@
     S7_EditorMode := "SCL";
     S7_Family := "Ruckig";
     S7_Optimized := "TRUE";
-    S7_Version := "0.4.0"
+    S7_Version := "0.5.0"
 }
 FUNCTION_BLOCK "RuckigOtg"
     VAR_INPUT
