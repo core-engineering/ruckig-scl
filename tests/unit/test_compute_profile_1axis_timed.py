@@ -175,6 +175,20 @@ def test_vel_uddu(harness, v0, a0, vT, aT, pd, k):
     _assert_timed_parity(harness, *args, _t_min(*args) * k)
 
 
+# T7: VEL (UDUD) — velocity plateau, jerk [+,0,-,0,+,0,-]. Degree-6 polynomial,
+# double Newton step. These two were the masked mismatches before time_vel.
+_VEL_UDUD_CASES = [
+    (0.0, -3.0, 0.0, -3.0, 0.3, 1.3),
+    (1.0, -3.0, 1.0, -3.0, 1.5, 1.1),
+]
+
+
+@pytest.mark.parametrize("v0,a0,vT,aT,pd,k", _VEL_UDUD_CASES)
+def test_vel_udud(harness, v0, a0, vT, aT, pd, k):
+    args = (0.0, v0, a0, pd, vT, aT)
+    _assert_timed_parity(harness, *args, _t_min(*args) * k)
+
+
 def test_oracle_timed_reaches_target():
     """The stretched trajectory still reaches the final state at tf."""
     args = (0.0, 0.5, 0.0, 1.0, 0.5, 0.0)

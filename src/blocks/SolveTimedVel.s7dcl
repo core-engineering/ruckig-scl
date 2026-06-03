@@ -35,6 +35,7 @@ FUNCTION "SolveTimedVel" : Void
         af_af     : LReal;
         a0_p3     : LReal;
         a0_p4     : LReal;
+        a0_p5     : LReal;
         a0_p6     : LReal;
         af_p3     : LReal;
         af_p4     : LReal;
@@ -47,6 +48,10 @@ FUNCTION "SolveTimedVel" : Void
         ph1   : LReal;
         ph2   : LReal;
         ph3   : LReal;
+        ph5   : LReal;
+        den_2jj : LReal;
+        den_6jj : LReal;
+        den_p6  : LReal;
         ph4   : LReal;
         poly  : Array[0..6] of LReal;
         den_p1 : LReal;
@@ -59,11 +64,13 @@ FUNCTION "SolveTimedVel" : Void
         tzMin   : LReal;
         tzMax   : LReal;
         segStep : LReal;
-        prevX   : LReal;
-        prevF   : LReal;
-        curX    : LReal;
-        curF    : LReal;
-        s       : Int;
+        prevX     : LReal;
+        prevF     : LReal;
+        prevPrevF : LReal;
+        curX      : LReal;
+        curF      : LReal;
+        s         : Int;
+        doChk     : Bool;
         // check_root scratch
         t      : LReal;
         h1     : LReal;
@@ -112,6 +119,7 @@ FUNCTION "SolveTimedVel" : Void
             #af_af := #aT * #aT;
             #a0_p3 := #a0 * #a0_a0;
             #a0_p4 := #a0_a0 * #a0_a0;
+            #a0_p5 := #a0_p3 * #a0_a0;
             #a0_p6 := #a0_p3 * #a0_p3;
             #af_p3 := #aT * #af_af;
             #af_p4 := #af_af * #af_af;
@@ -120,6 +128,8 @@ FUNCTION "SolveTimedVel" : Void
             #tf_tf := #tf * #tf;
             #g1 := -#pd + #tf * #v0;
             #den_12jj := 12.0 * #jMax_jMax;
+            #den_2jj := 2.0 * #jMax_jMax;
+            #den_6jj := 6.0 * #jMax_jMax;
         END_REGION
 
         REGION UDDU degree-5 polynomial
@@ -156,12 +166,20 @@ FUNCTION "SolveTimedVel" : Void
                     #segStep := (#tzMax - #tzMin) / INT_TO_LREAL(#N_SEG);
                     #prevX := #tzMin;
                     #prevF := "PolyEval"(p := #poly, n := 6, x := #prevX);
+                    #prevPrevF := #prevF;
                     FOR #s := 1 TO #N_SEG DO
                         IF NOT #found THEN
                             #curX := #tzMin + INT_TO_LREAL(#s) * #segStep;
                             #curF := "PolyEval"(p := #poly, n := 6, x := #curX);
+                            #doChk := false;
                             IF #prevF * #curF < 0.0 THEN
                                 #t := "ShrinkInterval"(p := #poly, n := 6, l := #prevX, h := #curX);
+                                #doChk := true;
+                            ELSIF #s >= 2 AND ABS(#prevF) < ABS(#prevPrevF) AND ABS(#prevF) <= ABS(#curF) THEN
+                                #t := #prevX;
+                                #doChk := true;
+                            END_IF;
+                            IF #doChk THEN
                                 // ---- check_root (UDDU) ----
                                 #h1arg := (#a0_a0 + #af_af) / (2.0 * #jMax_jMax) + (2.0 * #a0 * #t + #sjMax * #t * #t - #vd) / #sjMax;
                                 IF #h1arg >= 0.0 THEN
@@ -206,6 +224,114 @@ FUNCTION "SolveTimedVel" : Void
                                     END_IF;
                                 END_IF;
                             END_IF;
+                            #prevPrevF := #prevF;
+                            #prevX := #curX;
+                            #prevF := #curF;
+                        END_IF;
+                    END_FOR;
+                END_IF;
+            END_IF;
+        END_REGION
+
+        REGION UDUD degree-6 polynomial
+            IF NOT #found THEN
+                #ph1 := #af_af - 2.0 * #sjMax * (2.0 * #aT * #tf + #sjMax * #tf_tf - 3.0 * #vd);
+                #ph2 := #af_p3 - 3.0 * #jMax_jMax * #g1 + 3.0 * #aT * #sjMax * #vd;
+                #ph3 := 2.0 * #sjMax * #tf * #g1 + 3.0 * #vd_vd;
+                #ph4 := #af_p4 - 8.0 * #af_p3 * #sjMax * #tf + 12.0 * #sjMax * (#sjMax * #ph3 + #af_af * #vd + 2.0 * #aT * #sjMax * (#g1 - #tf * #vd));
+                #ph5 := #aT + #sjMax * #tf;
+
+                #den_p2 := 4.0 * #jMax_jMax;
+                #den_p3 := 6.0 * #jMax_jMax * #sjMax;
+                #den_p4 := 24.0 * #jMax_jMax * #jMax_jMax;
+                #den_p5 := 12.0 * #jMax_jMax * #jMax_jMax * #sjMax;
+                #den_p6 := 144.0 * #jMax_jMax * #jMax_jMax * #jMax_jMax;
+                #poly[0] := 1.0;
+                #poly[1] := (5.0 * #a0 - #ph5) / #sjMax;
+                #poly[2] := (39.0 * #a0_a0 - #ph1 - 16.0 * #a0 * #ph5) / #den_p2;
+                #poly[3] := (55.0 * #a0_p3 - 33.0 * #a0_a0 * #ph5 - 6.0 * #a0 * #ph1 + 2.0 * #ph2) / #den_p3;
+                #poly[4] := (101.0 * #a0_p4 + #ph4 - 76.0 * #a0_p3 * #ph5 - 30.0 * #a0_a0 * #ph1 + 16.0 * #a0 * #ph2) / #den_p4;
+                #poly[5] := (#a0 * (11.0 * #a0_p4 + #ph4 - 10.0 * #a0_p3 * #ph5 - 6.0 * #a0_a0 * #ph1 + 4.0 * #a0 * #ph2)) / #den_p5;
+                #poly[6] := (11.0 * #a0_p6 - #af_p6 - 12.0 * #a0_p5 * #ph5 - 48.0 * #af_p3 * #jMax_jMax * #g1 - 9.0 * #a0_p4 * #ph1 + 72.0 * #jMax_jMax * #sjMax * (#sjMax * #g1 * #g1 - #vd_vd * #vd - 2.0 * #aT * #g1 * #vd) - 6.0 * #af_p4 * #sjMax * #vd - 36.0 * #af_af * #jMax_jMax * #vd_vd + 8.0 * #a0_p3 * #ph2 + 3.0 * #a0_a0 * #ph4) / #den_p6;
+
+                #tzMin := -#a0 / #sjMax;
+                IF #tzMin < 0.0 THEN
+                    #tzMin := 0.0;
+                END_IF;
+                #tzMax := (#tf - #a0 / #sjMax) / 2.0;
+                #num := (#saMax - #a0) / #sjMax;
+                IF #num < #tzMax THEN
+                    #tzMax := #num;
+                END_IF;
+
+                IF #tzMax > #tzMin THEN
+                    #segStep := (#tzMax - #tzMin) / INT_TO_LREAL(#N_SEG);
+                    #prevX := #tzMin;
+                    #prevF := "PolyEval"(p := #poly, n := 7, x := #prevX);
+                    #prevPrevF := #prevF;
+                    FOR #s := 1 TO #N_SEG DO
+                        IF NOT #found THEN
+                            #curX := #tzMin + INT_TO_LREAL(#s) * #segStep;
+                            #curF := "PolyEval"(p := #poly, n := 7, x := #curX);
+                            #doChk := false;
+                            IF #prevF * #curF < 0.0 THEN
+                                #t := "ShrinkInterval"(p := #poly, n := 7, l := #prevX, h := #curX);
+                                #doChk := true;
+                            ELSIF #s >= 2 AND ABS(#prevF) < ABS(#prevPrevF) AND ABS(#prevF) <= ABS(#curF) THEN
+                                #t := #prevX;
+                                #doChk := true;
+                            END_IF;
+                            IF #doChk THEN
+                                // ---- check_root (UDUD, double Newton on pd) ----
+                                #h1arg := (#af_af - #a0_a0) / #den_2jj - ((2.0 * #a0 + #sjMax * #t) * #t - #vd) / #sjMax;
+                                IF #h1arg >= 0.0 THEN
+                                    #h1 := SQRT(#h1arg);
+                                    #orig := -#pd + (#af_p3 - #a0_p3 + 3.0 * #a0_a0 * #sjMax * (#tf - 2.0 * #t)) / #den_6jj + (2.0 * #a0 + #sjMax * #t) * #t * (#tf - #t) + (#sjMax * #h1 - #aT) * #h1 * #h1 + #tf * #v0;
+                                    #derivN := (#a0 + #sjMax * #t) * (2.0 * (#aT + #sjMax * #tf) - 3.0 * #sjMax * (#h1 + #t) - #a0) / #sjMax;
+                                    IF ABS(#derivN) > 2.220446049250313E-16 THEN
+                                        #t := #t - #orig / #derivN;
+                                    END_IF;
+                                    // second Newton step
+                                    #h1arg := (#af_af - #a0_a0) / #den_2jj - ((2.0 * #a0 + #sjMax * #t) * #t - #vd) / #sjMax;
+                                    IF #h1arg >= 0.0 THEN
+                                        #h1 := SQRT(#h1arg);
+                                        #orig := -#pd + (#af_p3 - #a0_p3 + 3.0 * #a0_a0 * #sjMax * (#tf - 2.0 * #t)) / #den_6jj + (2.0 * #a0 + #sjMax * #t) * #t * (#tf - #t) + (#sjMax * #h1 - #aT) * #h1 * #h1 + #tf * #v0;
+                                        IF ABS(#orig) > 1.0E-9 THEN
+                                            #derivN := (#a0 + #sjMax * #t) * (2.0 * (#aT + #sjMax * #tf) - 3.0 * #sjMax * (#h1 + #t) - #a0) / #sjMax;
+                                            IF ABS(#derivN) > 2.220446049250313E-16 THEN
+                                                #t := #t - #orig / #derivN;
+                                            END_IF;
+                                        END_IF;
+                                    END_IF;
+                                    // final profile
+                                    #h1arg := (#af_af - #a0_a0) / #den_2jj - ((2.0 * #a0 + #sjMax * #t) * #t - #vd) / #sjMax;
+                                    IF #h1arg >= 0.0 THEN
+                                        #h1 := SQRT(#h1arg);
+                                        #profile.t[0] := #t;
+                                        #profile.t[1] := 0.0;
+                                        #profile.t[2] := #t + #a0 / #sjMax;
+                                        #profile.t[3] := #tf - 2.0 * (#t + #h1) + #ad / #sjMax;
+                                        #profile.t[4] := #h1;
+                                        #profile.t[5] := 0.0;
+                                        #profile.t[6] := #h1 - #aT / #sjMax;
+                                        #profile.j[0] := #sjMax;
+                                        #profile.j[1] := 0.0;
+                                        #profile.j[2] := -#sjMax;
+                                        #profile.j[3] := 0.0;
+                                        #profile.j[4] := #sjMax;
+                                        #profile.j[5] := 0.0;
+                                        #profile.j[6] := -#sjMax;
+                                        #profile.direction := 1;
+                                        #profile.controlSigns := 1;
+                                        #ok := "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                                            pT := #pT, vT := #vT, aT := #aT, vMax := #vMaxMag, aMax := #aMaxMag, tf := #tf);
+                                        IF #ok THEN
+                                            #found := true;
+                                        END_IF;
+                                    END_IF;
+                                END_IF;
+                            END_IF;
+                            #prevPrevF := #prevF;
                             #prevX := #curX;
                             #prevF := #curF;
                         END_IF;
