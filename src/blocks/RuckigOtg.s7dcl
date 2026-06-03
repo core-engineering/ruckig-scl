@@ -321,6 +321,33 @@ FUNCTION_BLOCK "RuckigOtg"
                         #syncHandled := true;
                     END_IF;
 
+                    // ---- SYNC_PHASE: try phase sync, else fall through to Time --
+                    IF #input.synchronization = "dbRuckigConst".SYNC_PHASE THEN
+                        "PhaseSynchronize"(trajectory := #trajectory,
+                            chainPos := #chainPos, chainVel := #chainVel, chainAcc := #chainAcc,
+                            input := #input, nDofs := #nd,
+                            phaseOk => #phaseDone, duration => #phaseDur);
+                        IF #phaseDone THEN
+                            FOR #ax := 0 TO #nd - 1 DO
+                                #trajectory.profiles[#ax].brake.t[0] := 0.0;
+                                #trajectory.profiles[#ax].brake.t[1] := 0.0;
+                                #trajectory.profiles[#ax].brake.j[0] := 0.0;
+                                #trajectory.profiles[#ax].brake.j[1] := 0.0;
+                                #trajectory.profiles[#ax].brake.a[0] := 0.0;
+                                #trajectory.profiles[#ax].brake.a[1] := 0.0;
+                                #trajectory.profiles[#ax].brake.a[2] := 0.0;
+                                #trajectory.profiles[#ax].brake.v[0] := 0.0;
+                                #trajectory.profiles[#ax].brake.v[1] := 0.0;
+                                #trajectory.profiles[#ax].brake.v[2] := 0.0;
+                                #trajectory.profiles[#ax].brake.p[0] := 0.0;
+                                #trajectory.profiles[#ax].brake.p[1] := 0.0;
+                                #trajectory.profiles[#ax].brake.p[2] := 0.0;
+                            END_FOR;
+                            #trajectory.duration := #phaseDur;
+                            #syncHandled := true;
+                        END_IF;
+                    END_IF;
+
                     // ---- TIME (default + Phase fallback) -----------------------
                     IF NOT #syncHandled THEN
                     // ---- Phase 1: per-DoF reachable-duration Block ---------

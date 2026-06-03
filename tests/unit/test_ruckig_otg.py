@@ -323,3 +323,56 @@ def test_sync_no_axes_finish_independently(harness):
     assert harness.get_output("output").newPosition[1] == pytest.approx(8.0, abs=1e-3)
 
 
+def test_sync_phase_collinear_shared_timing(harness):
+    """SYNC_PHASE on a collinear move: both axes reach their (ratio-scaled)
+    targets together, no error."""
+    inp = default_input()
+    inp["nDofs"] = 2
+    inp["synchronization"] = 1  # SYNC_PHASE
+    inp["enabled"] = [True, True, False, False]
+    inp["targetPosition"] = [1.0, 3.0, 0.0, 0.0]
+    inp["maxVelocity"] = [3.0] * 4
+    inp["maxAcceleration"] = [5.0] * 4
+    inp["maxJerk"] = [10.0] * 4
+
+    p0 = p1 = 0.0
+    for _cyc in range(2000):
+        harness.set_inputs(enable=True, input=inp, cycleTime=0.010, reset=False)
+        harness.execute()
+        assert harness.get_output("error") is False
+        out = harness.get_output("output")
+        p0, p1 = out.newPosition[0], out.newPosition[1]
+        if harness.get_output("done"):
+            break
+    assert harness.get_output("done") is True
+    assert p0 == pytest.approx(1.0, abs=1e-3)
+    assert p1 == pytest.approx(3.0, abs=1e-3)
+
+
+def test_sync_phase_non_collinear_falls_back(harness):
+    """SYNC_PHASE on a non-collinear move falls back to Time: both still reach
+    target, no error."""
+    inp = default_input()
+    inp["nDofs"] = 2
+    inp["synchronization"] = 1  # SYNC_PHASE -> not collinear -> Time
+    inp["enabled"] = [True, True, False, False]
+    inp["currentVelocity"] = [1.0, -1.0, 0.0, 0.0]  # not collinear with pd=[1,3]
+    inp["targetPosition"] = [1.0, 3.0, 0.0, 0.0]
+    inp["maxVelocity"] = [3.0] * 4
+    inp["maxAcceleration"] = [5.0] * 4
+    inp["maxJerk"] = [10.0] * 4
+
+    p0 = p1 = 0.0
+    for _cyc in range(2000):
+        harness.set_inputs(enable=True, input=inp, cycleTime=0.010, reset=False)
+        harness.execute()
+        assert harness.get_output("error") is False
+        out = harness.get_output("output")
+        p0, p1 = out.newPosition[0], out.newPosition[1]
+        if harness.get_output("done"):
+            break
+    assert harness.get_output("done") is True
+    assert p0 == pytest.approx(1.0, abs=1e-3)
+    assert p1 == pytest.approx(3.0, abs=1e-3)
+
+
