@@ -93,14 +93,16 @@ FUNCTION "ComputeProfile1AxisTimed" : Word
             // Enabled after time_vel (VEL is tried first above), so the greedy
             // free-jerk acc0_acc1 no longer masks VEL cases. acc0/acc1/none may
             // still be stubs (no-op) until their tasks land.
+            // acc1 is implemented but kept OUT until acc0 + none are ported with
+            // structural plateau guards (Ruckig check<ACC1> requires t[5]>=eps,
+            // <ACC0> t[1]>=eps, etc.). Without those, the greedy acc1 masks NONE/
+            // ACC0 cases (wrong trajectory). acc0/none are still stubs (no-op).
             "SolveTimedAcc0Acc1"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMax, svMin := #svMin, saMax := #saMax, saMin := #saMin, sjMax := #sjMax, tf := #tf);
             "SolveTimedAcc0"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMax, svMin := #svMin, saMax := #saMax, saMin := #saMin, sjMax := #sjMax, tf := #tf);
-            "SolveTimedAcc1"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMax, svMin := #svMin, saMax := #saMax, saMin := #saMin, sjMax := #sjMax, tf := #tf);
             "SolveTimedNone"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMax, svMin := #svMin, saMax := #saMax, saMin := #saMin, sjMax := #sjMax, tf := #tf);
 
             "SolveTimedAcc0Acc1"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMin, svMin := #svMax, saMax := #saMin, saMin := #saMax, sjMax := -#sjMax, tf := #tf);
             "SolveTimedAcc0"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMin, svMin := #svMax, saMax := #saMin, saMin := #saMax, sjMax := -#sjMax, tf := #tf);
-            "SolveTimedAcc1"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMin, svMin := #svMax, saMax := #saMin, saMin := #saMax, sjMax := -#sjMax, tf := #tf);
             "SolveTimedNone"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMin, svMin := #svMax, saMax := #saMin, saMin := #saMax, sjMax := -#sjMax, tf := #tf);
         END_REGION
 
