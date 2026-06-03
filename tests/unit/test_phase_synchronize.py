@@ -83,3 +83,17 @@ def test_collinear_reaches_each_target(harness):
     assert ok is True
     assert traj.profiles[0].p[7] == pytest.approx(1.0, abs=1e-6)
     assert traj.profiles[1].p[7] == pytest.approx(3.0, abs=1e-6)
+
+
+def test_collinear_limit_exceeded_returns_false(harness):
+    # Collinear rest-to-rest (v0=a0=vT=aT=0): displacements [1.0, 5.0] are
+    # collinear by construction (ratio 5x, only one ratio to check).
+    # axis0 has tight aM/jM (0.02 / 0.1) so its independent profile is
+    # acceleration-limited and SLOWER than axis1 → axis0 is chosen as reference.
+    # kd = pd[1]/pd[0] = 5; scaled axis1 peak velocity = 5 × v0_ref ≈ 5 × 0.14 = 0.70,
+    # which exceeds axis1's vMax=0.5 → CheckProfile fails → phaseOk must be False.
+    # Ruckig also falls back: under Synchronization.Phase the two axis profiles
+    # have *different* time arrays (confirmed with the oracle).
+    ok, dur, traj = _run(harness, 2, [0, 0], [0, 0], [0, 0],
+                         [1.0, 5.0], [0, 0], [0, 0], [1.0, 0.5], [0.02, 5.0], [0.1, 5.0])
+    assert ok is False
