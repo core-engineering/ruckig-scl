@@ -157,12 +157,12 @@ uv run pytest tests/parity    # 30 cross-implementation parity scenarios
 | v0.2 | Single-axis with arbitrary initial / target velocity & acceleration |
 | v0.3 | Single-axis step2 (re-time to an imposed duration) |
 | v0.4 | Multi-axis time synchronization |
-| v0.5 | Phase + No synchronization modes *(this release)* |
-| v0.6 | per-DoF synchronization, duration discretization, TimeIfNecessary |
-| v0.7 | Velocity interface |
-| v0.8 | Brake profiles and degenerate cases |
-| v0.9 | Performance optimization |
-| v1.0 | First public release, after field-validation campaigns |
+| v0.5 | Multi-axis phase + no synchronization *(this release)* |
+| v0.6 | Velocity interface; remaining synchronization (per-DoF, TimeIfNecessary, duration discretization) |
+| v0.7 | Brake profiles and degenerate cases |
+| v0.8 | Performance optimization |
+| v0.9 | First public release, after field-validation campaigns |
+| v1.0 | Post field-testing |
 
 ## License
 
