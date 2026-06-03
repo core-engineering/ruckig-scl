@@ -1,0 +1,11 @@
+name: v0.6 2-DoF per-DoF [No, Time] with the No axis longer
+# Axis0 No (5 m, the slowest) runs free; axis1 Time (1 m) must stretch to the No
+# axis's duration -> trajectory duration set by the free axis. Locks in the
+# t_sync lower bound including No axes.
+n_dofs: 2
+per_dof_synchronization: [0, 2]
+target_position: [5.0, 1.0]
+max_velocity: [2.0, 2.0]
+max_acceleration: [5.0, 5.0]
+max_jerk: [10.0, 10.0]
+cycle_time: 0.010

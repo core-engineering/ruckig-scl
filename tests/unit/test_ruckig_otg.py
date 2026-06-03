@@ -19,6 +19,7 @@ def default_input() -> dict:
         "minimumDuration": -1.0,
         "controlInterface": 0,
         "synchronization": 2,
+        "perDofSynchronization": [-1, -1, -1, -1],
         "durationDiscretization": 0,
     }
 
@@ -419,3 +420,129 @@ def test_sync_phase_with_stationary_axis(harness):
     assert out.newPosition[1] == pytest.approx(0.0, abs=1e-6)
 
 
+def test_per_dof_no_time_mix(harness):
+    """perDofSynchronization [No, Time]: axis0 free at its t_min, axis1 synced."""
+    inp = default_input()
+    inp["nDofs"] = 2
+    inp["synchronization"] = 2  # global Time (overridden per-axis)
+    inp["perDofSynchronization"] = [0, 2, -1, -1]  # No, Time
+    inp["enabled"] = [True, True, False, False]
+    inp["targetPosition"] = [1.0, 5.0, 0.0, 0.0]
+    inp["maxVelocity"] = [2.0] * 4
+    inp["maxAcceleration"] = [5.0] * 4
+    inp["maxJerk"] = [10.0] * 4
+    reached0 = None
+    for cyc in range(1200):
+        harness.set_inputs(enable=True, input=inp, cycleTime=0.010, reset=False)
+        harness.execute()
+        assert harness.get_output("error") is False
+        out = harness.get_output("output")
+        if reached0 is None and abs(out.newPosition[0] - 1.0) < 1e-3:
+            reached0 = cyc
+        if harness.get_output("done"):
+            break
+    assert reached0 is not None and reached0 < 250   # axis0 free, finishes early
+    out = harness.get_output("output")
+    assert out.newPosition[0] == pytest.approx(1.0, abs=1e-3)
+    assert out.newPosition[1] == pytest.approx(5.0, abs=1e-3)
+
+
+def test_time_if_necessary_rest_vs_moving(harness):
+    """TimeIfNecessary: a rest-target axis runs free; with a moving target it syncs."""
+    inp = default_input()
+    inp["nDofs"] = 2
+    inp["synchronization"] = 4  # SYNC_TIME_IF_NECESSARY (global)
+    inp["enabled"] = [True, True, False, False]
+    inp["targetPosition"] = [1.0, 5.0, 0.0, 0.0]
+    inp["targetVelocity"] = [0.0, 0.0, 0.0, 0.0]  # both rest -> both free
+    inp["maxVelocity"] = [2.0] * 4
+    inp["maxAcceleration"] = [5.0] * 4
+    inp["maxJerk"] = [10.0] * 4
+    reached0 = None
+    for cyc in range(1200):
+        harness.set_inputs(enable=True, input=inp, cycleTime=0.010, reset=False)
+        harness.execute()
+        assert harness.get_output("error") is False
+        out = harness.get_output("output")
+        if reached0 is None and abs(out.newPosition[0] - 1.0) < 1e-3:
+            reached0 = cyc
+        if harness.get_output("done"):
+            break
+    assert reached0 is not None and reached0 < 250  # rest target -> axis0 free
+    assert harness.get_output("output").newPosition[1] == pytest.approx(5.0, abs=1e-3)
+
+
+def test_discrete_duration_is_cycle_multiple(harness):
+    """Discrete: trajectory duration is a multiple of cycleTime."""
+    inp = default_input()
+    inp["nDofs"] = 2
+    inp["synchronization"] = 2
+    inp["durationDiscretization"] = 1  # DISC_DISCRETE
+    inp["enabled"] = [True, True, False, False]
+    inp["targetPosition"] = [1.0, 5.0, 0.0, 0.0]
+    inp["maxVelocity"] = [2.0] * 4
+    inp["maxAcceleration"] = [5.0] * 4
+    inp["maxJerk"] = [10.0] * 4
+    dt = 0.05
+    dur = 0.0
+    for _cyc in range(2000):
+        harness.set_inputs(enable=True, input=inp, cycleTime=dt, reset=False)
+        harness.execute()
+        assert harness.get_output("error") is False
+        dur = harness.get_output("output").trajectoryDuration
+        if harness.get_output("done"):
+            break
+    ratio = dur / dt
+    assert abs(ratio - round(ratio)) < 1e-6, f"duration {dur} not a multiple of {dt}"
+    assert harness.get_output("output").newPosition[1] == pytest.approx(5.0, abs=1e-3)
+
+
+def test_per_dof_no_axis_longer_than_time_axis(harness):
+    """per_dof [No, Time] where the No axis is SLOWER: the Time axis must stretch
+    to the No axis's duration (not finish early). Regression for the t_sync lower
+    bound including No axes."""
+    inp = default_input()
+    inp["nDofs"] = 2
+    inp["synchronization"] = 2
+    inp["perDofSynchronization"] = [0, 2, -1, -1]  # axis0 No (long), axis1 Time (short)
+    inp["enabled"] = [True, True, False, False]
+    inp["targetPosition"] = [5.0, 1.0, 0.0, 0.0]
+    inp["maxVelocity"] = [2.0] * 4
+    inp["maxAcceleration"] = [5.0] * 4
+    inp["maxJerk"] = [10.0] * 4
+    reached1 = None
+    done_cyc = None
+    for cyc in range(1200):
+        harness.set_inputs(enable=True, input=inp, cycleTime=0.010, reset=False)
+        harness.execute()
+        assert harness.get_output("error") is False
+        out = harness.get_output("output")
+        if reached1 is None and abs(out.newPosition[1] - 1.0) < 1e-3:
+            reached1 = cyc
+        if harness.get_output("done"):
+            done_cyc = cyc
+            break
+    # The Time axis (axis1, target 1.0) is stretched to the No axis's ~3.39 s
+    # (~339 cycles), so it must NOT reach its target in the first ~200 cycles.
+    assert reached1 is not None and reached1 > 250, f"Time axis finished too early at cycle {reached1}"
+    assert harness.get_output("output").newPosition[0] == pytest.approx(5.0, abs=1e-3)
+    assert harness.get_output("output").newPosition[1] == pytest.approx(1.0, abs=1e-3)
+
+
+def test_single_axis_cruise_through_target_not_frozen(harness):
+    """Single-axis, start STATE == target STATE with v0=vT!=0: the time-optimal
+    move is a there-and-back (~1.79 s), not a frozen zero-duration hold.
+    Regression for the single-axis at-target guard."""
+    inp = default_input()
+    inp["nDofs"] = 1
+    inp["currentVelocity"] = [1.0, 0.0, 0.0, 0.0]
+    inp["targetPosition"] = [0.0, 0.0, 0.0, 0.0]   # p0 = pT = 0
+    inp["targetVelocity"] = [1.0, 0.0, 0.0, 0.0]   # v0 = vT = 1
+    inp["maxVelocity"] = [2.0] * 4
+    inp["maxAcceleration"] = [5.0] * 4
+    inp["maxJerk"] = [10.0] * 4
+    harness.set_inputs(enable=True, input=inp, cycleTime=0.010, reset=False)
+    harness.execute()
+    assert harness.get_output("error") is False
+    dur = harness.get_output("output").trajectoryDuration
+    assert dur == pytest.approx(1.7889, abs=1e-3), f"expected ~1.79s there-and-back, got {dur}"

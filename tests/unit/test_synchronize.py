@@ -14,10 +14,17 @@ def _blk(tMin, aValid=False, aLeft=0.0, aRight=0.0,
             "bValid": bValid, "bLeft": bLeft, "bRight": bRight}
 
 
-def _run(harness, blocks, n_dofs, minimum_duration=-1.0):
+def _run(harness, blocks, n_dofs, minimum_duration=-1.0,
+         participates=None, discrete=False, cycle_time=0.010):
     padded = list(blocks) + [_blk(0.0)] * (4 - len(blocks))
+    if participates is None:
+        participates = [True] * 4
+    else:
+        participates = list(participates) + [False] * (4 - len(participates))
     harness.reset()
-    harness.set_inputs(blockSet={"items": padded}, nDofs=n_dofs, minimumDuration=minimum_duration)
+    harness.set_inputs(blockSet={"items": padded}, nDofs=n_dofs,
+                       minimumDuration=minimum_duration,
+                       participates=participates, discrete=discrete, cycleTime=cycle_time)
     harness.execute()
     return (harness.get_output("resolved"),
             harness.get_output("tSync"),
@@ -59,3 +66,43 @@ def test_minimum_duration_in_blocked_interval(harness):
                                     _blk(0.8)], 2, minimum_duration=2.5)
     assert ok is True
     assert tsync == pytest.approx(3.0)
+
+
+def test_participation_mask_no_axis_sets_tsync_floor(harness):
+    # DoF0 t_min=3.0 NOT participating (No); DoF1 t_min=1.0 participating.
+    # The No axis's tMin still sets the t_sync floor (overall trajectory duration).
+    # t_sync = max(3.0, 1.0) = 3.0; limiting axis is still DoF1 (the longest
+    # participating axis, used for re-timing participating axes).
+    ok, tsync, lim = _run(harness, [_blk(3.0), _blk(1.0)], 2,
+                          participates=[False, True])
+    assert ok is True
+    assert tsync == pytest.approx(3.0)
+    assert lim == 1
+
+
+def test_discrete_rounds_up_to_cycle_grid(harness):
+    # t_sync = max(tMin) = 2.0; discrete dt=0.3 -> ceil(2.0/0.3)*0.3 = 2.1
+    ok, tsync, lim = _run(harness, [_blk(2.0), _blk(1.0)], 2,
+                          discrete=True, cycle_time=0.3)
+    assert ok is True
+    assert tsync == pytest.approx(2.1, abs=1e-9)
+
+
+def test_discrete_rounding_jumps_blocked_interval(harness):
+    # tMin=2.0 (free), blocked interval (2.05, 2.9). Continuous t_sync = 2.0.
+    # discrete dt=0.3: ceil(2.0/0.3)=2.1 lands inside (2.05,2.9) -> jump to the
+    # right edge 2.9, ceiled to grid -> 3.0.
+    ok, tsync, lim = _run(harness, [_blk(2.0, aValid=True, aLeft=2.05, aRight=2.9),
+                                    _blk(1.0)], 2, discrete=True, cycle_time=0.3)
+    assert ok is True
+    assert tsync == pytest.approx(3.0, abs=1e-9)
+
+
+def test_all_no_axes_resolve_to_max_tmin_or_minimum_duration(harness):
+    # No participating axis -> resolved trivially; t_sync = max(minimumDuration,
+    # max(tMin over all axes)) = max(1.5, 2.0) = 2.0.
+    # (No-axes' tMin values still set the floor even when all axes are No.)
+    ok, tsync, lim = _run(harness, [_blk(1.0), _blk(2.0)], 2,
+                          participates=[False, False], minimum_duration=1.5)
+    assert ok is True
+    assert tsync == pytest.approx(2.0)

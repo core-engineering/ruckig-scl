@@ -12,7 +12,11 @@ from dataclasses import dataclass, field
 import ruckig
 
 _SYNC_MAP = {0: ruckig.Synchronization.No, 1: ruckig.Synchronization.Phase,
-             2: ruckig.Synchronization.Time}
+             2: ruckig.Synchronization.Time,
+             4: ruckig.Synchronization.TimeIfNecessary}
+# key 3 (SYNC_PER_DOF) is an SCL dispatcher sentinel; it has no ruckig enum counterpart
+
+_DISC_MAP = {0: ruckig.DurationDiscretization.Continuous, 1: ruckig.DurationDiscretization.Discrete}
 
 
 @dataclass
@@ -49,6 +53,8 @@ def run_reference(
     cycle_time: float,
     minimum_duration: float = -1.0,
     synchronization: int = 2,
+    per_dof_synchronization: list | None = None,
+    duration_discretization: int = 0,
     max_cycles: int = 2000,
 ) -> TrajectoryTrace:
     """Run Ruckig with the given inputs and return a cycle-by-cycle trace."""
@@ -66,6 +72,9 @@ def run_reference(
     inp.max_acceleration = max_acc[:n_dofs]
     inp.max_jerk = max_jerk[:n_dofs]
     inp.synchronization = _SYNC_MAP[synchronization]
+    inp.duration_discretization = _DISC_MAP[duration_discretization]
+    if per_dof_synchronization is not None:
+        inp.per_dof_synchronization = [_SYNC_MAP[m] for m in per_dof_synchronization[:n_dofs]]
     if minimum_duration >= 0.0:
         inp.minimum_duration = minimum_duration
 

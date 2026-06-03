@@ -14,6 +14,7 @@ TYPE
         minimumDuration        : LReal := -1.0;   // sentinel < 0 = none (time sync)
         controlInterface       : Int := 0;
         synchronization        : Int := 2;   // default SYNC_TIME (matches Ruckig)
+        perDofSynchronization  : Array[0..3] of Int := -1, -1, -1, -1;   // -1 = use global
         durationDiscretization : Int := 0;
     END_STRUCT;
 END_TYPE

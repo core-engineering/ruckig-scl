@@ -25,10 +25,11 @@ DATA_BLOCK dbRuckigConst
         RESULT_ERR_SOLVER     : Word  := 16#8602;
         RESULT_ERR_SYNC       : Word  := 16#8603;
 
-        SYNC_NONE             : Int   := 0;
-        SYNC_PHASE            : Int   := 1;
-        SYNC_TIME             : Int   := 2;
-        SYNC_PER_DOF          : Int   := 3;
+        SYNC_NONE              : Int := 0;
+        SYNC_PHASE             : Int := 1;
+        SYNC_TIME              : Int := 2;
+        SYNC_PER_DOF           : Int := 3;
+        SYNC_TIME_IF_NECESSARY : Int := 4;
 
         IFACE_POSITION        : Int   := 0;
         IFACE_VELOCITY        : Int   := 1;

@@ -39,6 +39,8 @@ def _kwargs_from_scenario(data: dict) -> dict:
         "cycle_time": data.get("cycle_time", 0.010),
         "minimum_duration": data.get("minimum_duration", -1.0),
         "synchronization": data.get("synchronization", 2),
+        "per_dof_synchronization": data.get("per_dof_synchronization"),
+        "duration_discretization": data.get("duration_discretization", 0),
     }
 
 
