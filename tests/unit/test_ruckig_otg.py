@@ -297,3 +297,28 @@ def test_minimum_duration_stretches_single_axis(harness):
     assert harness.get_output("output").newPosition[0] == pytest.approx(1.0, abs=1e-3)
 
 
+def test_sync_no_axes_finish_independently(harness):
+    """SYNC_NO: a short axis reaches its target at its OWN t_min, not stretched."""
+    inp = default_input()
+    inp["nDofs"] = 2
+    inp["synchronization"] = 0  # SYNC_NONE
+    inp["enabled"] = [True, True, False, False]
+    inp["targetPosition"] = [1.0, 8.0, 0.0, 0.0]
+    inp["maxVelocity"] = [2.0] * 4
+    inp["maxAcceleration"] = [5.0] * 4
+    inp["maxJerk"] = [10.0] * 4
+
+    reached0 = None
+    for cyc in range(2000):
+        harness.set_inputs(enable=True, input=inp, cycleTime=0.010, reset=False)
+        harness.execute()
+        out = harness.get_output("output")
+        if reached0 is None and abs(out.newPosition[0] - 1.0) < 1e-3:
+            reached0 = cyc
+        if harness.get_output("done"):
+            break
+    assert reached0 is not None and reached0 < 200
+    assert harness.get_output("output").newPosition[0] == pytest.approx(1.0, abs=1e-3)
+    assert harness.get_output("output").newPosition[1] == pytest.approx(8.0, abs=1e-3)
+
+
