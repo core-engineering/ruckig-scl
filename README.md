@@ -4,11 +4,24 @@ A Siemens SCL (Structured Text) port of the [Ruckig](https://github.com/pantor/r
 Online Trajectory Generation library, for S7-1500 PLCs. MIT-licensed (same as
 upstream Ruckig).
 
-**Status: v0.5.0 — multi-axis Phase and No synchronization modes, building on
-v0.4's Time sync. `Synchronization.Phase` produces straight-line joint-space
-motion when axes are collinear (falls back to Time when not); `Synchronization.No`
-lets each axis finish at its own time-optimal duration. On top of v0.4 multi-axis
-Time sync and the v0.2.1 time-optimal (step1) single-axis solver.**
+**Status: v0.6.0 — per-DoF synchronization, TimeIfNecessary, and discrete
+duration rounding, building on v0.5's Phase and No synchronization modes. Each
+axis can now carry an independent sync mode (`No` / `Time` / `TimeIfNecessary`
+via `perDofSynchronization`); a rest-target axis can run free while moving
+targets are time-synced; `t_sync` can be rounded up to the next cycle boundary.
+On top of v0.5 multi-axis Phase/No sync and v0.4 Time sync.**
+
+## Features (v0.6)
+
+- **`perDofSynchronization`** (`Array[0..3] of Int`, `-1` = use global mode) —
+  each axis independently `No` / `Time` / `TimeIfNecessary`. A `Phase` per-DoF
+  entry is treated as `Time`; `Phase` stays a global-only mode.
+- **`TimeIfNecessary`** (`SYNC_TIME_IF_NECESSARY = 4`) — an axis is time-synced
+  only if its target is moving (`vT != 0` or `aT != 0`); a rest target runs free
+  at its time-optimal duration.
+- **`DurationDiscretization.Discrete`** — `t_sync` is rounded up to a multiple of
+  `cycleTime` (jumping any blocked interval the rounding lands in); every
+  synchronized axis is then re-timed to the rounded duration.
 
 ## Features (v0.5)
 
@@ -49,13 +62,15 @@ Time sync and the v0.2.1 time-optimal (step1) single-axis solver.**
   agrees to the floating-point floor (~1e-15) across all profile families;
   cyclic rest-to-rest / zero-target-velocity parity holds to 1e-6
 
-### Known limitations (v0.5)
+### Known limitations (v0.6)
 
+- **Per-DoF `Phase` mixes are not supported.** A `Phase` per-DoF entry is
+  silently treated as `Time`; `Phase` is a global-only mode (matches Ruckig,
+  which abandons phase whenever a Time axis is in the mix).
+- **Velocity control interface not yet implemented.** Deferred to v0.7.
 - **No brake pre-phase in the multi-axis path.** Multi-DoF assumes the initial
   states are within limits; the brake machinery runs only on the single-axis
-  path. Full brake machinery is deferred to v0.7.
-- **`TimeIfNecessary`, `DurationDiscretization.Discrete`, and
-  `per_dof_synchronization` not implemented.** Deferred to v0.6.
+  path. Full brake machinery is deferred to v0.8.
 - **step1 two-step fallbacks not yet ported.** For ~3% of arbitrary
   initial/target state combinations the three main profile families yield no
   feasible profile and the solver returns `RESULT_ERR_SOLVER` (Ruckig recovers
@@ -148,7 +163,7 @@ uv sync                       # core deps (offline-installable)
 uv run pytest tests/unit      # unit tests
 
 uv sync --extra parity        # adds the Ruckig reference (PyPI: ruckig)
-uv run pytest tests/parity    # 30 cross-implementation parity scenarios
+uv run pytest tests/parity    # 35 cross-implementation parity scenarios
 ```
 
 ## Roadmap
@@ -159,11 +174,11 @@ uv run pytest tests/parity    # 30 cross-implementation parity scenarios
 | v0.2 | Single-axis with arbitrary initial / target velocity & acceleration |
 | v0.3 | Single-axis step2 (re-time to an imposed duration) |
 | v0.4 | Multi-axis time synchronization |
-| v0.5 | Multi-axis phase + no synchronization *(this release)* |
-| v0.6 | Velocity interface; remaining synchronization (per-DoF, TimeIfNecessary, duration discretization) |
-| v0.7 | Brake profiles and degenerate cases |
-| v0.8 | Performance optimization |
-| v0.9 | First public release, after field-validation campaigns |
+| v0.5 | Multi-axis phase + no synchronization |
+| v0.6 | Per-DoF synchronization, TimeIfNecessary, discrete duration *(this release)* |
+| v0.7 | Velocity interface |
+| v0.8 | Brake profiles and degenerate cases |
+| v0.9 | Performance optimization; first public release, after field-validation campaigns |
 | v1.0 | Post field-testing |
 
 ## License

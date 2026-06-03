@@ -3,6 +3,41 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-06-03
+
+Multi-axis synchronization completeness, on top of v0.5.
+
+### Added
+- **`perDofSynchronization`** (`typeRuckigInput`, `Array[0..3] of Int`, `-1` =
+  use the global mode) — each axis independently `No` / `Time` /
+  `TimeIfNecessary`. (A `Phase` per-DoF entry is treated as `Time`; `Phase`
+  stays a global mode.)
+- **`TimeIfNecessary`** (`SYNC_TIME_IF_NECESSARY = 4`) — an axis is time-synced
+  only if its target is moving (`vT != 0` or `aT != 0`); a rest target runs free
+  at its time-optimal duration.
+- **`DurationDiscretization.Discrete`** — `t_sync` is rounded up to a multiple of
+  `cycleTime` (jumping any blocked interval the rounding lands in), then every
+  synchronized axis is re-timed to it.
+
+### Changed
+- `RuckigOtg`'s multi-axis recompute keeps the global `Phase` branch and replaces
+  the global `No`/`Time` branches with one unified per-axis flow (resolve mode ->
+  Block participating axes -> `Synchronize` over a participation mask -> emit per
+  axis). The global modes are the special case "all axes share one mode".
+- `Synchronize` gains a per-axis participation mask (only `No` axes are excluded
+  from `t_sync`) and discrete-duration rounding.
+
+### Parity
+- 4 new scenarios (`v06_01..04`): per-DoF `[No, Time]`, `TimeIfNecessary` rest and
+  moving, discrete duration. 35 parity scenarios total. 206 tests pass.
+
+### Known limitations
+- Per-DoF `Phase` mixes are not supported (a Phase per-DoF entry -> Time); Phase is
+  a global mode (matches Ruckig, which abandons phase whenever a Time axis is in
+  the mix). `SYNC_PER_DOF` is not a valid global `synchronization` value (it is the
+  per-axis array mechanism). The velocity control interface -> v0.7; brake
+  profiles -> v0.8.
+
 ## [0.5.0] - 2026-06-03
 
 Two additional multi-axis synchronization modes on top of v0.4's Time sync.
@@ -216,6 +251,7 @@ out-of-limits first enable. Builds on the v0.1 FB/UDT layer.
   returns `RESULT_ERR_SOLVER` if ever required): the zero-limits special case
   and the two-step fallbacks (`time_*_two_step`).
 
+[0.6.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.6.0
 [0.5.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.5.0
 [0.4.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.4.0
 [0.3.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.3.0
