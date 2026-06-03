@@ -91,7 +91,8 @@ Data is carried by UDTs (`typeRuckigInput`, `typeRuckigOutput`, `typeProfile`,
 `typeTrajectory`, `typeBrakeProfile`, `typeBlock`, `typeBlockSet`). See the
 design specs under [docs/superpowers/specs/](docs/superpowers/specs/)
 (`2026-05-28-…-port-design.md` for v0.1, `2026-05-30-…-v0.2-design.md` for v0.2,
-`2026-06-02-…-v0.3-design.md` for v0.3, `2026-06-03-…-v0.4-design.md` for v0.4).
+`2026-06-02-…-v0.3-design.md` for v0.3, `2026-06-03-…-v0.4-design.md` for v0.4,
+`2026-06-03-ruckig-scl-v0.5-design.md` for v0.5).
 
 ## Target platform
 
@@ -132,8 +133,9 @@ See [`examples/single-axis-point-to-point/`](examples/single-axis-point-to-point
 
 For multi-axis motion, set `otgInput.nDofs := N` (≤ 4) and fill the per-DoF
 arrays (`maxVelocity[d]`, `targetPosition[d]`, …) for each axis; the FB
-time-synchronizes them so all axes reach their targets together. Set
-`otgInput.minimumDuration` (≥ 0) to impose a minimum trajectory duration.
+synchronizes them according to `otgInput.synchronization` (Time = arrive
+together, Phase = collinear straight-line motion, No = each axis independent).
+Set `otgInput.minimumDuration` (≥ 0) to impose a minimum trajectory duration.
 
 ## Tests
 
