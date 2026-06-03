@@ -1,0 +1,219 @@
+{
+    S7_Author := "Martin C";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.5.0"
+}
+FUNCTION "PhaseSynchronize" : Void
+    VAR_IN_OUT
+        trajectory : _.typeTrajectory;
+    END_VAR
+    VAR_INPUT
+        chainPos : Array[0..3] of LReal;
+        chainVel : Array[0..3] of LReal;
+        chainAcc : Array[0..3] of LReal;
+        input    : _.typeRuckigInput;
+        nDofs    : Int;
+    END_VAR
+    VAR_OUTPUT
+        phaseOk  : Bool;
+        duration : LReal;
+    END_VAR
+    VAR_TEMP
+        ax       : Int;
+        i        : DInt;
+        refAx    : Int;
+        scaleAx  : Int;
+        scaleQ   : Int;
+        res      : Word;
+        dur      : LReal;
+        durBest  : LReal;
+        pd       : Array[0..3] of LReal;
+        sval     : Array[0..3] of LReal;
+        rPd      : LReal;
+        rV0      : LReal;
+        rA0      : LReal;
+        rVt      : LReal;
+        rAt      : LReal;
+        denom    : LReal;
+        kd       : LReal;
+        cs       : LReal;
+        ok       : Bool;
+        epsP     : LReal;
+        atTarget : Bool;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      PhaseSynchronize
+            // Function:   v0.5 phase synchronization. Solves step1 per axis,
+            //             picks the limiting (slowest) axis as the phase profile,
+            //             tests collinearity of (pd, v0, a0, vT, aT) across DoFs,
+            //             and if collinear copies the limiting axis's timing onto
+            //             every axis with jerk scaled by the displacement ratio,
+            //             then re-validates each (CheckProfile). phaseOk = false
+            //             on any non-collinearity or limit violation -> caller
+            //             falls back to Time sync. Port of Ruckig
+            //             TargetCalculator::is_input_collinear + phase build
+            //             (calculator_target.hpp l.44-117, 392-456).
+            // Family:     Ruckig
+            // Author:     Martin C
+            //==========================================================
+        END_REGION
+
+        REGION Per-axis step1 + limiting (reference) axis
+            #phaseOk := false;
+            #duration := 0.0;
+            #epsP := "dbRuckigConst".EPS_PHASE;
+            #refAx := 0;
+            #durBest := -1.0;
+            FOR #ax := 0 TO #nDofs - 1 DO
+                #pd[#ax] := #input.targetPosition[#ax] - #chainPos[#ax];
+                #atTarget :=
+                    ABS(#pd[#ax]) < "dbRuckigConst".EPS_POSITION
+                    AND ABS(#input.targetVelocity[#ax] - #chainVel[#ax]) < "dbRuckigConst".EPS_VELOCITY
+                    AND ABS(#input.targetAcceleration[#ax] - #chainAcc[#ax]) < "dbRuckigConst".EPS_DERIV;
+                IF #atTarget THEN
+                    FOR #i := 0 TO 6 DO
+                        #trajectory.profiles[#ax].t[#i] := 0.0;
+                        #trajectory.profiles[#ax].j[#i] := 0.0;
+                    END_FOR;
+                    FOR #i := 0 TO 7 DO
+                        #trajectory.profiles[#ax].a[#i] := #chainAcc[#ax];
+                        #trajectory.profiles[#ax].v[#i] := #chainVel[#ax];
+                        #trajectory.profiles[#ax].p[#i] := #chainPos[#ax];
+                    END_FOR;
+                    #dur := 0.0;
+                ELSE
+                    #res := "ComputeProfile1Axis"(profile := #trajectory.profiles[#ax],
+                        p0 := #chainPos[#ax], v0 := #chainVel[#ax], a0 := #chainAcc[#ax],
+                        pT := #input.targetPosition[#ax], vT := #input.targetVelocity[#ax],
+                        aT := #input.targetAcceleration[#ax],
+                        vMax := #input.maxVelocity[#ax], aMax := #input.maxAcceleration[#ax],
+                        jMax := #input.maxJerk[#ax]);
+                    IF #res <> "dbRuckigConst".RESULT_WORKING AND #res <> "dbRuckigConst".RESULT_FINISHED THEN
+                        RETURN;
+                    END_IF;
+                    #dur := 0.0;
+                    FOR #i := 0 TO 6 DO
+                        #dur := #dur + #trajectory.profiles[#ax].t[#i];
+                    END_FOR;
+                END_IF;
+                IF #dur > #durBest THEN
+                    #durBest := #dur;
+                    #refAx := #ax;
+                END_IF;
+            END_FOR;
+        END_REGION
+
+        REGION Select scale quantity (priority pd > v0 > a0 > vT > aT)
+            #scaleAx := -1;
+            #scaleQ := -1;
+            FOR #ax := 0 TO #nDofs - 1 DO
+                IF #scaleAx < 0 THEN
+                    IF ABS(#pd[#ax]) > #epsP THEN
+                        #scaleAx := #ax;
+                        #scaleQ := 0;
+                    ELSIF ABS(#chainVel[#ax]) > #epsP THEN
+                        #scaleAx := #ax;
+                        #scaleQ := 1;
+                    ELSIF ABS(#chainAcc[#ax]) > #epsP THEN
+                        #scaleAx := #ax;
+                        #scaleQ := 2;
+                    ELSIF ABS(#input.targetVelocity[#ax]) > #epsP THEN
+                        #scaleAx := #ax;
+                        #scaleQ := 3;
+                    ELSIF ABS(#input.targetAcceleration[#ax]) > #epsP THEN
+                        #scaleAx := #ax;
+                        #scaleQ := 4;
+                    END_IF;
+                END_IF;
+            END_FOR;
+            IF #scaleAx < 0 THEN
+                RETURN;
+            END_IF;
+        END_REGION
+
+        REGION Per-axis scale value
+            FOR #ax := 0 TO #nDofs - 1 DO
+                IF #scaleQ = 0 THEN
+                    #sval[#ax] := #pd[#ax];
+                ELSIF #scaleQ = 1 THEN
+                    #sval[#ax] := #chainVel[#ax];
+                ELSIF #scaleQ = 2 THEN
+                    #sval[#ax] := #chainAcc[#ax];
+                ELSIF #scaleQ = 3 THEN
+                    #sval[#ax] := #input.targetVelocity[#ax];
+                ELSE
+                    #sval[#ax] := #input.targetAcceleration[#ax];
+                END_IF;
+            END_FOR;
+            IF ABS(#sval[#refAx]) < #epsP THEN
+                RETURN;
+            END_IF;
+        END_REGION
+
+        REGION Collinearity ratios (relative to scale axis)
+            #denom := #sval[#scaleAx];
+            #rPd := #pd[#scaleAx] / #denom;
+            #rV0 := #chainVel[#scaleAx] / #denom;
+            #rA0 := #chainAcc[#scaleAx] / #denom;
+            #rVt := #input.targetVelocity[#scaleAx] / #denom;
+            #rAt := #input.targetAcceleration[#scaleAx] / #denom;
+        END_REGION
+
+        REGION Collinearity test (every DoF, all five quantities)
+            FOR #ax := 0 TO #nDofs - 1 DO
+                #cs := #sval[#ax];
+                IF ABS(#pd[#ax] - #rPd * #cs) > #epsP THEN
+                    RETURN;
+                END_IF;
+                IF ABS(#chainVel[#ax] - #rV0 * #cs) > #epsP THEN
+                    RETURN;
+                END_IF;
+                IF ABS(#chainAcc[#ax] - #rA0 * #cs) > #epsP THEN
+                    RETURN;
+                END_IF;
+                IF ABS(#input.targetVelocity[#ax] - #rVt * #cs) > #epsP THEN
+                    RETURN;
+                END_IF;
+                IF ABS(#input.targetAcceleration[#ax] - #rAt * #cs) > #epsP THEN
+                    RETURN;
+                END_IF;
+            END_FOR;
+        END_REGION
+
+        REGION Scale limiting profile onto each axis + validate
+            FOR #ax := 0 TO #nDofs - 1 DO
+                IF #ax <> #refAx THEN
+                    #kd := #sval[#ax] / #sval[#refAx];
+                    FOR #i := 0 TO 6 DO
+                        #trajectory.profiles[#ax].t[#i] := #trajectory.profiles[#refAx].t[#i];
+                        #trajectory.profiles[#ax].j[#i] := #kd * #trajectory.profiles[#refAx].j[#i];
+                    END_FOR;
+                    #trajectory.profiles[#ax].direction := #trajectory.profiles[#refAx].direction;
+                    #trajectory.profiles[#ax].controlSigns := #trajectory.profiles[#refAx].controlSigns;
+                    "IntegrateProfileStates"(profile := #trajectory.profiles[#ax],
+                        p0 := #chainPos[#ax], v0 := #chainVel[#ax], a0 := #chainAcc[#ax]);
+                    #ok := "CheckProfile"(profile := #trajectory.profiles[#ax],
+                        p0 := #chainPos[#ax], v0 := #chainVel[#ax], a0 := #chainAcc[#ax],
+                        pT := #input.targetPosition[#ax], vT := #input.targetVelocity[#ax],
+                        aT := #input.targetAcceleration[#ax],
+                        vMax := #input.maxVelocity[#ax], aMax := #input.maxAcceleration[#ax],
+                        tf := #durBest);
+                    IF NOT #ok THEN
+                        RETURN;
+                    END_IF;
+                END_IF;
+            END_FOR;
+        END_REGION
+
+        REGION Success
+            #duration := #durBest;
+            #phaseOk := true;
+        END_REGION
+    END_NETWORK
+END_FUNCTION

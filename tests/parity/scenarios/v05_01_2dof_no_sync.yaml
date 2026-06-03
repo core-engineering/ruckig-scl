@@ -1,0 +1,10 @@
+name: v0.5 2-DoF no synchronization
+# Synchronization.No: each axis runs at its own time-optimal duration. The short
+# axis (1 m) finishes well before the long axis (8 m); neither is stretched.
+n_dofs: 2
+synchronization: 0
+target_position: [1.0, 8.0]
+max_velocity: [2.0, 2.0]
+max_acceleration: [5.0, 5.0]
+max_jerk: [10.0, 10.0]
+cycle_time: 0.010

@@ -3,6 +3,36 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-06-03
+
+Two additional multi-axis synchronization modes on top of v0.4's Time sync.
+
+### Added
+- `Synchronization.Phase` — when the per-DoF state deltas `(pd, v0, a0, vT, aT)`
+  are collinear, every axis follows the limiting axis's jerk-switch timing with
+  jerk scaled by the displacement ratio (straight-line motion in joint space).
+  When not collinear, falls back to Time sync (exact Ruckig behaviour). New FC
+  `PhaseSynchronize` (port of `is_input_collinear` + phase build).
+- `Synchronization.No` — each axis runs at its own time-optimal duration,
+  finishing independently; `trajectory.duration = max`.
+- `dbRuckigConst.EPS_PHASE` (collinearity tolerance).
+
+### Changed
+- `RuckigOtg` dispatches on `input.synchronization`. The v0.4 Time path is
+  unchanged and serves as the Phase fallback.
+- `typeRuckigInput.synchronization` default -> `SYNC_TIME` (matches Ruckig's
+  default; preserves v0.4 behaviour for callers that do not set it).
+
+### Parity
+- 3 new scenarios (`v05_01..03`): No (independent), Phase collinear (exact),
+  Phase non-collinear (Time fallback) - floating-point-floor match. 30 parity
+  scenarios total. 192 tests pass.
+
+### Known limitations
+- `TimeIfNecessary`, `DurationDiscretization.Discrete`, and
+  `per_dof_synchronization` are not implemented (v0.6).
+- No brake pre-phase in the multi-axis path (v0.7); step1 ~3% gaps (v0.2).
+
 ## [0.4.0] - 2026-06-03
 
 **Multi-axis time synchronization.** `RuckigOtg` now drives up to 4 DoFs so that
@@ -186,6 +216,7 @@ out-of-limits first enable. Builds on the v0.1 FB/UDT layer.
   returns `RESULT_ERR_SOLVER` if ever required): the zero-limits special case
   and the two-step fallbacks (`time_*_two_step`).
 
+[0.5.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.5.0
 [0.4.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.4.0
 [0.3.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.3.0
 [0.2.1]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.2.1

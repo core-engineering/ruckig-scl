@@ -1,0 +1,11 @@
+name: v0.5 2-DoF phase synchronization (collinear)
+# Synchronization.Phase on a collinear move (axis1 = 3 x axis0): all axes share
+# the jerk-switch timing, jerk scaled by the displacement ratio -> straight-line
+# motion. Exact match to Ruckig.
+n_dofs: 2
+synchronization: 1
+target_position: [1.0, 3.0]
+max_velocity: [3.0, 3.0]
+max_acceleration: [5.0, 5.0]
+max_jerk: [10.0, 10.0]
+cycle_time: 0.010

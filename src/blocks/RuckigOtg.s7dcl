@@ -3,7 +3,7 @@
     S7_EditorMode := "SCL";
     S7_Family := "Ruckig";
     S7_Optimized := "TRUE";
-    S7_Version := "0.4.0"
+    S7_Version := "0.5.0"
 }
 FUNCTION_BLOCK "RuckigOtg"
     VAR_INPUT
@@ -57,6 +57,10 @@ FUNCTION_BLOCK "RuckigOtg"
         syncOk       : Bool;
         tSync        : LReal;
         limitingAxis : Int;
+        syncHandled  : Bool;
+        axDur        : LReal;
+        phaseDur     : LReal;    // PhaseSynchronize output: common phase duration
+        phaseDone    : Bool;     // PhaseSynchronize output: phase sync succeeded
         // StateAtTime sampling scratch
         op : LReal;
         ov : LReal;
@@ -158,6 +162,9 @@ FUNCTION_BLOCK "RuckigOtg"
                     END_IF;
                 END_FOR;
                 IF ABS(#input.minimumDuration - #prevInput.minimumDuration) > "dbRuckigConst".EPS_TIME THEN
+                    #recomputeRequired := true;
+                END_IF;
+                IF #input.synchronization <> #prevInput.synchronization THEN
                     #recomputeRequired := true;
                 END_IF;
             END_IF;
@@ -267,6 +274,98 @@ FUNCTION_BLOCK "RuckigOtg"
                 // MULTI-AXIS PATH (>1 DoF or minimumDuration set) -> v0.4
                 //========================================================
                 IF #multiPath THEN
+                    #syncHandled := false;
+
+                    // ---- SYNC_NO: each axis at its own time-optimal duration --
+                    IF #input.synchronization = "dbRuckigConst".SYNC_NONE THEN
+                        #mainDuration := 0.0;
+                        FOR #ax := 0 TO #nd - 1 DO
+                            #atTarget :=
+                                ABS(#input.targetPosition[#ax] - #chainPos[#ax]) < "dbRuckigConst".EPS_POSITION
+                                AND ABS(#input.targetVelocity[#ax] - #chainVel[#ax]) < "dbRuckigConst".EPS_VELOCITY
+                                AND ABS(#input.targetAcceleration[#ax] - #chainAcc[#ax]) < "dbRuckigConst".EPS_DERIV;
+                            IF #atTarget THEN
+                                FOR #i := 0 TO 6 DO
+                                    #trajectory.profiles[#ax].t[#i] := 0.0;
+                                    #trajectory.profiles[#ax].j[#i] := 0.0;
+                                END_FOR;
+                                FOR #i := 0 TO 7 DO
+                                    #trajectory.profiles[#ax].a[#i] := #chainAcc[#ax];
+                                    #trajectory.profiles[#ax].v[#i] := #chainVel[#ax];
+                                    #trajectory.profiles[#ax].p[#i] := #chainPos[#ax];
+                                END_FOR;
+                            ELSE
+                                #profileResult := "ComputeProfile1Axis"(profile := #trajectory.profiles[#ax],
+                                    p0 := #chainPos[#ax], v0 := #chainVel[#ax], a0 := #chainAcc[#ax],
+                                    pT := #input.targetPosition[#ax], vT := #input.targetVelocity[#ax],
+                                    aT := #input.targetAcceleration[#ax],
+                                    vMax := #input.maxVelocity[#ax], aMax := #input.maxAcceleration[#ax],
+                                    jMax := #input.maxJerk[#ax]);
+                                IF #profileResult <> "dbRuckigConst".RESULT_WORKING AND #profileResult <> "dbRuckigConst".RESULT_FINISHED THEN
+                                    #valid := false;
+                                    #busy := false;
+                                    #done := false;
+                                    #error := true;
+                                    #status := "dbRuckigConst".RESULT_ERR_TRAJ;
+                                    #trajectory.isValid := false;
+                                    RETURN;
+                                END_IF;
+                            END_IF;
+                            #trajectory.profiles[#ax].brake.t[0] := 0.0;
+                            #trajectory.profiles[#ax].brake.t[1] := 0.0;
+                            #trajectory.profiles[#ax].brake.j[0] := 0.0;
+                            #trajectory.profiles[#ax].brake.j[1] := 0.0;
+                            #trajectory.profiles[#ax].brake.a[0] := 0.0;
+                            #trajectory.profiles[#ax].brake.a[1] := 0.0;
+                            #trajectory.profiles[#ax].brake.a[2] := 0.0;
+                            #trajectory.profiles[#ax].brake.v[0] := 0.0;
+                            #trajectory.profiles[#ax].brake.v[1] := 0.0;
+                            #trajectory.profiles[#ax].brake.v[2] := 0.0;
+                            #trajectory.profiles[#ax].brake.p[0] := 0.0;
+                            #trajectory.profiles[#ax].brake.p[1] := 0.0;
+                            #trajectory.profiles[#ax].brake.p[2] := 0.0;
+                            #axDur := 0.0;
+                            FOR #i := 0 TO 6 DO
+                                #axDur := #axDur + #trajectory.profiles[#ax].t[#i];
+                            END_FOR;
+                            #trajectory.independentMinDurations[#ax] := #axDur;
+                            IF #axDur > #mainDuration THEN
+                                #mainDuration := #axDur;
+                            END_IF;
+                        END_FOR;
+                        #trajectory.duration := #mainDuration;
+                        #syncHandled := true;
+                    END_IF;
+
+                    // ---- SYNC_PHASE: try phase sync, else fall through to Time --
+                    IF #input.synchronization = "dbRuckigConst".SYNC_PHASE THEN
+                        "PhaseSynchronize"(trajectory := #trajectory,
+                            chainPos := #chainPos, chainVel := #chainVel, chainAcc := #chainAcc,
+                            input := #input, nDofs := #nd,
+                            phaseOk => #phaseDone, duration => #phaseDur);
+                        IF #phaseDone THEN
+                            FOR #ax := 0 TO #nd - 1 DO
+                                #trajectory.profiles[#ax].brake.t[0] := 0.0;
+                                #trajectory.profiles[#ax].brake.t[1] := 0.0;
+                                #trajectory.profiles[#ax].brake.j[0] := 0.0;
+                                #trajectory.profiles[#ax].brake.j[1] := 0.0;
+                                #trajectory.profiles[#ax].brake.a[0] := 0.0;
+                                #trajectory.profiles[#ax].brake.a[1] := 0.0;
+                                #trajectory.profiles[#ax].brake.a[2] := 0.0;
+                                #trajectory.profiles[#ax].brake.v[0] := 0.0;
+                                #trajectory.profiles[#ax].brake.v[1] := 0.0;
+                                #trajectory.profiles[#ax].brake.v[2] := 0.0;
+                                #trajectory.profiles[#ax].brake.p[0] := 0.0;
+                                #trajectory.profiles[#ax].brake.p[1] := 0.0;
+                                #trajectory.profiles[#ax].brake.p[2] := 0.0;
+                            END_FOR;
+                            #trajectory.duration := #phaseDur;
+                            #syncHandled := true;
+                        END_IF;
+                    END_IF;
+
+                    // ---- TIME (default + Phase fallback) -----------------------
+                    IF NOT #syncHandled THEN
                     // ---- Phase 1: per-DoF reachable-duration Block ---------
                     FOR #ax := 0 TO #nd - 1 DO
                         #blockResult := "ComputeBlock1Axis"(
@@ -366,6 +465,7 @@ FUNCTION_BLOCK "RuckigOtg"
                         #trajectory.independentMinDurations[#ax] := #blockSet.items[#ax].tMin;
                     END_FOR;
                     #trajectory.duration := #tSync;
+                    END_IF;
                 END_IF;
 
                 #trajectory.currentTime := 0.0;

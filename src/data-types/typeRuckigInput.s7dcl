@@ -13,7 +13,7 @@ TYPE
         nDofs                  : DInt := 1;
         minimumDuration        : LReal := -1.0;   // sentinel < 0 = none (time sync)
         controlInterface       : Int := 0;
-        synchronization        : Int := 0;
+        synchronization        : Int := 2;   // default SYNC_TIME (matches Ruckig)
         durationDiscretization : Int := 0;
     END_STRUCT;
 END_TYPE

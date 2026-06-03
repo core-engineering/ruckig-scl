@@ -4,10 +4,23 @@ A Siemens SCL (Structured Text) port of the [Ruckig](https://github.com/pantor/r
 Online Trajectory Generation library, for S7-1500 PLCs. MIT-licensed (same as
 upstream Ruckig).
 
-**Status: v0.4.0 — multi-axis (up to 4 DoF) time synchronization: every axis
-reaches its target at the same instant `t_sync`. Wires the v0.3 single-axis
-step2 into Ruckig's full Block → synchronize → re-time pipeline, on top of the
-v0.2.1 time-optimal (step1) single-axis solver.**
+**Status: v0.5.0 — multi-axis Phase and No synchronization modes, building on
+v0.4's Time sync. `Synchronization.Phase` produces straight-line joint-space
+motion when axes are collinear (falls back to Time when not); `Synchronization.No`
+lets each axis finish at its own time-optimal duration. On top of v0.4 multi-axis
+Time sync and the v0.2.1 time-optimal (step1) single-axis solver.**
+
+## Features (v0.5)
+
+- **`Synchronization.Phase`** — when per-DoF state deltas `(pd, v0, a0, vT, aT)`
+  are collinear, every axis follows the limiting axis's jerk-switch timing with
+  jerk scaled by the displacement ratio (straight-line motion in joint space).
+  When not collinear, falls back to Time sync (exact Ruckig behaviour). New FC
+  `PhaseSynchronize`.
+- **`Synchronization.No`** — each axis runs at its own time-optimal duration,
+  finishing independently; `trajectory.duration = max`. No inter-axis coupling.
+- `typeRuckigInput.synchronization` selects the mode; default `SYNC_TIME`
+  preserves v0.4 behaviour for callers that do not set it.
 
 ## Features (v0.4)
 
@@ -36,13 +49,13 @@ v0.2.1 time-optimal (step1) single-axis solver.**
   agrees to the floating-point floor (~1e-15) across all profile families;
   cyclic rest-to-rest / zero-target-velocity parity holds to 1e-6
 
-### Known limitations (v0.4)
+### Known limitations (v0.5)
 
 - **No brake pre-phase in the multi-axis path.** Multi-DoF assumes the initial
   states are within limits; the brake machinery runs only on the single-axis
   path. Full brake machinery is deferred to v0.7.
-- **Time synchronization only.** `Phase` / `None` / per-DoF synchronization
-  modes and duration discretization are not implemented.
+- **`TimeIfNecessary`, `DurationDiscretization.Discrete`, and
+  `per_dof_synchronization` not implemented.** Deferred to v0.6.
 - **step1 two-step fallbacks not yet ported.** For ~3% of arbitrary
   initial/target state combinations the three main profile families yield no
   feasible profile and the solver returns `RESULT_ERR_SOLVER` (Ruckig recovers
@@ -58,7 +71,8 @@ One stateful FB orchestrating pure algorithmic FCs, called once per PLC cycle:
 
 | Block | Role |
 |-------|------|
-| `RuckigOtg` (FB) | Lifecycle: validate → detect change → recompute → advance → evaluate. Multi-DoF: `Block` per axis → `Synchronize` → step2 re-time per axis. Single-DoF keeps the v0.3 step1 path. `pass_to_input` chaining |
+| `RuckigOtg` (FB) | Lifecycle: validate → detect change → recompute → advance → evaluate. Dispatches on `input.synchronization` (Time / Phase / No). Multi-DoF: `Block` per axis → `Synchronize` → step2 re-time per axis. Single-DoF keeps the v0.3 step1 path. `pass_to_input` chaining |
+| `PhaseSynchronize` (FC) | Phase sync — collinearity test on per-DoF state deltas; builds scaled jerk profile from the limiting axis for each collinear DoF; returns fallback flag when not collinear |
 | `ComputeBlock1Axis` (FC) | step1 → reachable-duration `Block` (`tMin` + blocked intervals) |
 | `Synchronize` (FC) | Common `t_sync` ≥ max(`tMin`) avoiding every axis's blocked intervals; limiting axis |
 | `ComputeProfile1AxisTimed` (FC) | Single-DoF step2: re-time a move to an imposed duration `tf` (8 families × 2 directions) |
@@ -77,7 +91,8 @@ Data is carried by UDTs (`typeRuckigInput`, `typeRuckigOutput`, `typeProfile`,
 `typeTrajectory`, `typeBrakeProfile`, `typeBlock`, `typeBlockSet`). See the
 design specs under [docs/superpowers/specs/](docs/superpowers/specs/)
 (`2026-05-28-…-port-design.md` for v0.1, `2026-05-30-…-v0.2-design.md` for v0.2,
-`2026-06-02-…-v0.3-design.md` for v0.3, `2026-06-03-…-v0.4-design.md` for v0.4).
+`2026-06-02-…-v0.3-design.md` for v0.3, `2026-06-03-…-v0.4-design.md` for v0.4,
+`2026-06-03-ruckig-scl-v0.5-design.md` for v0.5).
 
 ## Target platform
 
@@ -118,8 +133,9 @@ See [`examples/single-axis-point-to-point/`](examples/single-axis-point-to-point
 
 For multi-axis motion, set `otgInput.nDofs := N` (≤ 4) and fill the per-DoF
 arrays (`maxVelocity[d]`, `targetPosition[d]`, …) for each axis; the FB
-time-synchronizes them so all axes reach their targets together. Set
-`otgInput.minimumDuration` (≥ 0) to impose a minimum trajectory duration.
+synchronizes them according to `otgInput.synchronization` (Time = arrive
+together, Phase = collinear straight-line motion, No = each axis independent).
+Set `otgInput.minimumDuration` (≥ 0) to impose a minimum trajectory duration.
 
 ## Tests
 
@@ -132,7 +148,7 @@ uv sync                       # core deps (offline-installable)
 uv run pytest tests/unit      # unit tests
 
 uv sync --extra parity        # adds the Ruckig reference (PyPI: ruckig)
-uv run pytest tests/parity    # 27 cross-implementation parity scenarios
+uv run pytest tests/parity    # 30 cross-implementation parity scenarios
 ```
 
 ## Roadmap
@@ -142,9 +158,9 @@ uv run pytest tests/parity    # 27 cross-implementation parity scenarios
 | v0.1 | Single-axis, rest-to-rest, position interface |
 | v0.2 | Single-axis with arbitrary initial / target velocity & acceleration |
 | v0.3 | Single-axis step2 (re-time to an imposed duration) |
-| v0.4 | Multi-axis time synchronization *(this release)* |
-| v0.5 | Synchronization modes (Phase / per-DoF), duration discretization |
-| v0.6 | Velocity interface |
+| v0.4 | Multi-axis time synchronization |
+| v0.5 | Multi-axis phase + no synchronization *(this release)* |
+| v0.6 | Velocity interface; remaining synchronization (per-DoF, TimeIfNecessary, duration discretization) |
 | v0.7 | Brake profiles and degenerate cases |
 | v0.8 | Performance optimization |
 | v0.9 | First public release, after field-validation campaigns |
