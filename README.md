@@ -4,10 +4,9 @@ A Siemens SCL (Structured Text) port of the [Ruckig](https://github.com/pantor/r
 Online Trajectory Generation library, for S7-1500 PLCs. MIT-licensed (same as
 upstream Ruckig).
 
-**Status: v0.2.1 — single-axis, arbitrary initial AND target states
-(`v0, a0 ≠ 0`, target velocity & acceleration ≠ 0), with online retarget
-chaining and a brake pre-phase. v0.2.1 fixes an interior velocity-limit check
-and brings moving targets to floating-point-floor parity.**
+**Status: v0.3.0 — adds single-axis step2 (re-timing to an imposed duration
+`tf >= t_min`), the foundation for v0.4 multi-axis time synchronization. Builds
+on the v0.2.1 time-optimal (step1) single-axis solver.**
 
 ## Features (v0.2)
 

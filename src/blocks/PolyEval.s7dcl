@@ -1,0 +1,46 @@
+{
+    S7_Author := "Martin C";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.3.0"
+}
+FUNCTION "PolyEval" : LReal
+    VAR_INPUT
+        p : Array[0..6] of LReal;
+        n : Int;
+        x : LReal;
+    END_VAR
+    VAR_TEMP
+        ret : LReal;
+        xn  : LReal;
+        k   : Int;
+        idx : Int;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      PolyEval
+            // Function:   Evaluate a polynomial at x by Horner-style summation.
+            //             Coefficients p[0..n-1], p[0] = highest-degree term
+            //             (x^(n-1)), p[n-1] = constant. Port of Ruckig
+            //             roots.hpp poly_eval. Up to degree 6 (n<=7).
+            // Family:     Ruckig
+            // Author:     Martin C
+            //==========================================================
+        END_REGION
+
+        REGION Evaluate
+            #ret := 0.0;
+            #xn := 1.0;
+            FOR #k := 0 TO #n - 1 DO
+                #idx := #n - 1 - #k;
+                #ret := #ret + #p[#idx] * #xn;
+                #xn := #xn * #x;
+            END_FOR;
+            #PolyEval := #ret;
+        END_REGION
+    END_NETWORK
+END_FUNCTION

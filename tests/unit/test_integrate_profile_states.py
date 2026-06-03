@@ -61,6 +61,19 @@ def test_nonzero_initial_state(harness):
     assert p == pytest.approx(ep, abs=1e-9)
 
 
+def test_udud_pattern_matches_definition(harness):
+    """v0.3 step2 introduces the UDUD jerk pattern [+j,0,-j,0,+j,0,-j]
+    (vs UDDU [+j,0,-j,0,-j,0,+j]). IntegrateProfileStates is pattern-agnostic
+    (it integrates from j[]), so it must reproduce UDUD node states exactly."""
+    t = [0.1, 0.05, 0.2, 0.1, 0.2, 0.05, 0.1]
+    j = [10.0, 0.0, -10.0, 0.0, 10.0, 0.0, -10.0]  # UDUD: phase4 is +j, not -j
+    a, v, p = _run(harness, t, j, 0.0, 0.0, 0.0)
+    ea, ev, ep = _expected(t, j, 0.0, 0.0, 0.0)
+    assert a == pytest.approx(ea, abs=1e-9)
+    assert v == pytest.approx(ev, abs=1e-9)
+    assert p == pytest.approx(ep, abs=1e-9)
+
+
 def test_zero_durations_hold_state(harness):
     # all t = 0 -> every sample equals the initial state
     t = [0.0] * 7

@@ -1,0 +1,120 @@
+{
+    S7_Author := "Martin C";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.3.0"
+}
+FUNCTION "ComputeProfile1AxisTimed" : Word
+    VAR_IN_OUT
+        profile : _.typeProfile;
+    END_VAR
+    VAR_INPUT
+        p0   : LReal;
+        v0   : LReal;
+        a0   : LReal;
+        pT   : LReal;
+        vT   : LReal;
+        aT   : LReal;
+        vMax : LReal;
+        aMax : LReal;
+        jMax : LReal;
+        tf   : LReal;
+    END_VAR
+    VAR_TEMP
+        found   : Bool;
+        pd      : LReal;
+        // primary-direction signed limits (per Ruckig up_first selection)
+        svMax : LReal;
+        svMin : LReal;
+        saMax : LReal;
+        saMin : LReal;
+        sjMax : LReal;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      ComputeProfile1AxisTimed
+            // Function:   Single-DoF step2 solver. v0.3 port of Ruckig
+            //             PositionThirdOrderStep2::get_profile. Given an imposed
+            //             duration tf (>= t_min), find the jerk-limited profile
+            //             that reaches the arbitrary final state EXACTLY at tf.
+            //             Foundation for v0.4 multi-axis time synchronization.
+            //             Tries the 8 step2 families in BOTH directions (UDDU and
+            //             UDUD control signs); first valid candidate wins. Each
+            //             family FC self-skips once #found is set.
+            // Order:      Ruckig get_profile dispatch (position_third_step2.cpp
+            //             l.1112): the 4 velocity-reaching families in both
+            //             directions first, then the 4 no-plateau families.
+            // Note:       Identifier ends in "Timed" (no trailing "of"/"Dof":
+            //             plc-code lexer mis-tokenises a trailing "of").
+            // Family:     Ruckig
+            // Author:     Martin C
+            // Ref:        ruckig/src/ruckig/position_third_step2.cpp
+            //==========================================================
+        END_REGION
+
+        REGION Direction selection (up_first)
+            // up_first = (pd > tf*v0): pick the primary signed-limit set. The
+            // reversed pass swaps max<->min limits and negates jerk (svMin,
+            // svMax, saMin, saMax, -sjMax), exactly like Ruckig.
+            #found := false;
+            #pd := #pT - #p0;
+            IF #pd > #tf * #v0 THEN
+                #svMax := #vMax;
+                #svMin := -#vMax;
+                #saMax := #aMax;
+                #saMin := -#aMax;
+                #sjMax := #jMax;
+            ELSE
+                #svMax := -#vMax;
+                #svMin := #vMax;
+                #saMax := -#aMax;
+                #saMin := #aMax;
+                #sjMax := -#jMax;
+            END_IF;
+        END_REGION
+
+        REGION Velocity-reaching families (primary then reversed)
+            "SolveTimedAcc0Acc1Vel"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMax, svMin := #svMin, saMax := #saMax, saMin := #saMin, sjMax := #sjMax, tf := #tf);
+            "SolveTimedVel"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMax, svMin := #svMin, saMax := #saMax, saMin := #saMin, sjMax := #sjMax, tf := #tf);
+            "SolveTimedAcc0Vel"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMax, svMin := #svMin, saMax := #saMax, saMin := #saMin, sjMax := #sjMax, tf := #tf);
+            "SolveTimedAcc1Vel"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMax, svMin := #svMin, saMax := #saMax, saMin := #saMin, sjMax := #sjMax, tf := #tf);
+
+            "SolveTimedAcc0Acc1Vel"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMin, svMin := #svMax, saMax := #saMin, saMin := #saMax, sjMax := -#sjMax, tf := #tf);
+            "SolveTimedVel"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMin, svMin := #svMax, saMax := #saMin, saMin := #saMax, sjMax := -#sjMax, tf := #tf);
+            "SolveTimedAcc0Vel"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMin, svMin := #svMax, saMax := #saMin, saMin := #saMax, sjMax := -#sjMax, tf := #tf);
+            "SolveTimedAcc1Vel"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMin, svMin := #svMax, saMax := #saMin, saMin := #saMax, sjMax := -#sjMax, tf := #tf);
+        END_REGION
+
+        REGION No-plateau families (primary then reversed)
+            // Enabled after time_vel (VEL is tried first above), so the greedy
+            // free-jerk acc0_acc1 no longer masks VEL cases. acc0/acc1/none may
+            // still be stubs (no-op) until their tasks land.
+            // acc1 is implemented but kept OUT until acc0 + none are ported with
+            // structural plateau guards (Ruckig check<ACC1> requires t[5]>=eps,
+            // <ACC0> t[1]>=eps, etc.). Without those, the greedy acc1 masks NONE/
+            // ACC0 cases (wrong trajectory). acc0/none are still stubs (no-op).
+            "SolveTimedAcc0Acc1"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMax, svMin := #svMin, saMax := #saMax, saMin := #saMin, sjMax := #sjMax, tf := #tf);
+            "SolveTimedAcc0"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMax, svMin := #svMin, saMax := #saMax, saMin := #saMin, sjMax := #sjMax, tf := #tf);
+            "SolveTimedAcc1"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMax, svMin := #svMin, saMax := #saMax, saMin := #saMin, sjMax := #sjMax, tf := #tf);
+            "SolveTimedNone"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMax, svMin := #svMin, saMax := #saMax, saMin := #saMin, sjMax := #sjMax, tf := #tf);
+
+            "SolveTimedAcc0Acc1"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMin, svMin := #svMax, saMax := #saMin, saMin := #saMax, sjMax := -#sjMax, tf := #tf);
+            "SolveTimedAcc0"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMin, svMin := #svMax, saMax := #saMin, saMin := #saMax, sjMax := -#sjMax, tf := #tf);
+            "SolveTimedAcc1"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMin, svMin := #svMax, saMax := #saMin, saMin := #saMax, sjMax := -#sjMax, tf := #tf);
+            "SolveTimedNone"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMin, svMin := #svMax, saMax := #saMin, saMin := #saMax, sjMax := -#sjMax, tf := #tf);
+        END_REGION
+
+        REGION Finalise
+            IF #found THEN
+                "IntegrateProfileStates"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0);
+                #ComputeProfile1AxisTimed := "dbRuckigConst".RESULT_WORKING;
+            ELSE
+                #ComputeProfile1AxisTimed := "dbRuckigConst".RESULT_ERR_SOLVER;
+            END_IF;
+        END_REGION
+    END_NETWORK
+END_FUNCTION

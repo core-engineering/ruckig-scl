@@ -1,0 +1,231 @@
+{
+    S7_Author := "Martin C";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.3.0"
+}
+FUNCTION "SolveTimedAcc1Vel" : Void
+    VAR_IN_OUT
+        profile : _.typeProfile;
+        found   : Bool;
+    END_VAR
+    VAR_INPUT
+        p0    : LReal;
+        v0    : LReal;
+        a0    : LReal;
+        pT    : LReal;
+        vT    : LReal;
+        aT    : LReal;
+        svMax : LReal;
+        svMin : LReal;
+        saMax : LReal;
+        saMin : LReal;
+        sjMax : LReal;
+        tf    : LReal;
+    END_VAR
+    VAR_TEMP
+        vMaxMag : LReal;
+        aMaxMag : LReal;
+        // precompute
+        pd        : LReal;
+        vd        : LReal;
+        vd_vd     : LReal;
+        ad        : LReal;
+        a0_a0     : LReal;
+        af_af     : LReal;
+        a0_p3     : LReal;
+        a0_p4     : LReal;
+        af_p3     : LReal;
+        af_p4     : LReal;
+        jMax_jMax : LReal;
+        g1        : LReal;
+        // helpers
+        ph1 : LReal;
+        ph2 : LReal;
+        ph3 : LReal;
+        ph4 : LReal;
+        poly0 : LReal;
+        poly1 : LReal;
+        poly2 : LReal;
+        poly3 : LReal;
+        roots     : Array[0..3] of LReal;
+        rootCount : Int;
+        k         : Int;
+        t     : LReal;
+        tMinW : LReal;
+        tMaxW : LReal;
+        h0    : LReal;
+        h1    : LReal;
+        orig  : LReal;
+        deriv : LReal;
+        num   : LReal;
+        // precomputed product denominators
+        den_jjj      : LReal;
+        den_12jjjj   : LReal;
+        den_24aMinjj : LReal;
+        denAMinJ     : LReal;
+        ok    : Bool;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      SolveTimedAcc1Vel
+            // Function:   step2 family time_acc1_vel: re-time to tf a profile
+            //             reaching -aMax (decel plateau) and the velocity
+            //             plateau (not +aMax). UDDU (monic quartic + one Newton
+            //             step on pd) then UDUD (monic quartic). Port of Ruckig
+            //             position_third_step2.cpp l.77-163. First-valid-wins.
+            // Family:     Ruckig
+            // Author:     Martin C
+            //==========================================================
+        END_REGION
+
+        REGION Skip if already solved
+            IF #found THEN
+                RETURN;
+            END_IF;
+        END_REGION
+
+        REGION Precompute
+            #vMaxMag := ABS(#svMax);
+            #aMaxMag := ABS(#saMax);
+            #pd        := #pT - #p0;
+            #vd        := #vT - #v0;
+            #vd_vd     := #vd * #vd;
+            #ad        := #aT - #a0;
+            #a0_a0     := #a0 * #a0;
+            #af_af     := #aT * #aT;
+            #a0_p3     := #a0 * #a0_a0;
+            #a0_p4     := #a0_a0 * #a0_a0;
+            #af_p3     := #aT * #af_af;
+            #af_p4     := #af_af * #af_af;
+            #jMax_jMax := #sjMax * #sjMax;
+            #g1        := -#pd + #tf * #v0;
+            #den_jjj      := #jMax_jMax * #sjMax;
+            #den_12jjjj   := 12.0 * #jMax_jMax * #jMax_jMax;
+            #den_24aMinjj := 24.0 * #saMin * #jMax_jMax;
+            #denAMinJ     := #saMin * #sjMax;
+        END_REGION
+
+        REGION UDDU (quartic + Newton on pd)
+            #ph1 := #a0_a0 + #af_af - #saMin * (#a0 + 2.0 * #aT - #saMin) - 2.0 * #sjMax * (#vd - #saMin * #tf);
+            #ph2 := 2.0 * #saMin * (#sjMax * #g1 + #aT * #vd) - #saMin * #saMin * #vd + #sjMax * #vd_vd;
+            #ph3 := #af_af + #saMin * (#saMin - 2.0 * #aT) - 2.0 * #sjMax * (#vd - #saMin * #tf);
+            #poly0 := (2.0 * (2.0 * #a0 - #saMin)) / #sjMax;
+            #poly1 := (4.0 * #a0_a0 + #ph1 - 3.0 * #a0 * #saMin) / #jMax_jMax;
+            #poly2 := (2.0 * #a0 * #ph1) / #den_jjj;
+            #num := 3.0 * (#a0_p4 + #af_p4) - 4.0 * (#a0_p3 + 2.0 * #af_p3) * #saMin
+                + 6.0 * #af_af * (#saMin * #saMin - 2.0 * #sjMax * #vd)
+                + 12.0 * #sjMax * #ph2 + 6.0 * #a0_a0 * #ph3;
+            #poly3 := #num / #den_12jjjj;
+
+            #tMinW := -#a0 / #sjMax;
+            #tMaxW := (#tf + 2.0 * #saMin / #sjMax - (#a0 + #aT) / #sjMax) / 2.0;
+            #num := (#saMax - #a0) / #sjMax;
+            IF #num < #tMaxW THEN
+                #tMaxW := #num;
+            END_IF;
+
+            "SolveQuartic"(a := 1.0, b := #poly0, c := #poly1, d := #poly2, e := #poly3,
+                roots => #roots, count => #rootCount);
+
+            FOR #k := 0 TO #rootCount - 1 DO
+                #t := #roots[#k];
+                IF #t >= #tMinW AND #t <= #tMaxW THEN
+                    IF ABS(#a0 + #sjMax * #t) > 1.6E-15 THEN
+                        #h0 := #sjMax * #t * #t;
+                        #num := 3.0 * (#a0_p4 + #af_p4) - 8.0 * #af_p3 * #saMin - 4.0 * #a0_p3 * #saMin
+                            + 6.0 * #af_af * (#saMin * #saMin + 2.0 * #sjMax * (#h0 - #vd))
+                            + 6.0 * #a0_a0 * (#af_af - 2.0 * #aT * #saMin + #saMin * #saMin + 2.0 * #saMin * #sjMax * (-2.0 * #t + #tf) + 2.0 * #sjMax * (5.0 * #h0 - #vd))
+                            + 24.0 * #a0 * #sjMax * #t * (#a0_a0 + #af_af - 2.0 * #aT * #saMin + #saMin * #saMin + 2.0 * #sjMax * (#saMin * (-#t + #tf) + #h0 - #vd))
+                            - 24.0 * #aT * #saMin * #sjMax * (#h0 - #vd)
+                            + 12.0 * #sjMax * (#saMin * #saMin * (#h0 - #vd) + #sjMax * (#h0 - #vd) * (#h0 - #vd));
+                        #orig := -#pd + #num / #den_24aMinjj + #h0 * (#tf - #t) + #tf * #v0;
+                        #deriv := (#a0 + #sjMax * #t) * ((#a0_a0 + #af_af) / #denAMinJ + (#saMin - #a0 - 2.0 * #aT) / #sjMax + (4.0 * #a0 * #t + 2.0 * #h0 - 2.0 * #vd) / #saMin + 2.0 * #tf - 3.0 * #t);
+                        #t := #t - #orig / #deriv;
+                    END_IF;
+
+                    #h1 := -((#a0_a0 + #af_af) / 2.0 + #sjMax * (-#vd + 2.0 * #a0 * #t + #sjMax * #t * #t)) / #saMin;
+                    #profile.t[0] := #t;
+                    #profile.t[1] := 0.0;
+                    #profile.t[2] := #a0 / #sjMax + #t;
+                    #profile.t[3] := #tf - (#h1 - #saMin + #a0 + #aT) / #sjMax - 2.0 * #t;
+                    #profile.t[4] := -#saMin / #sjMax;
+                    #profile.t[5] := (#h1 + #saMin) / #sjMax;
+                    #profile.t[6] := #profile.t[4] + #aT / #sjMax;
+                    #profile.j[0] := #sjMax;
+                    #profile.j[1] := 0.0;
+                    #profile.j[2] := -#sjMax;
+                    #profile.j[3] := 0.0;
+                    #profile.j[4] := -#sjMax;
+                    #profile.j[5] := 0.0;
+                    #profile.j[6] := #sjMax;
+                    #profile.direction := 1;
+                    #profile.controlSigns := 0;
+                    #ok := "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                        pT := #pT, vT := #vT, aT := #aT, vMax := #vMaxMag, aMax := #aMaxMag, tf := #tf);
+                    IF #ok THEN
+                        #found := true;
+                        RETURN;
+                    END_IF;
+                END_IF;
+            END_FOR;
+        END_REGION
+
+        REGION UDUD (quartic)
+            #ph1 := #a0_a0 - #af_af + (2.0 * #aT - #a0) * #saMax - #saMax * #saMax - 2.0 * #sjMax * (#vd - #saMax * #tf);
+            #ph2 := #saMax * #saMax + 2.0 * #sjMax * #vd;
+            #ph3 := #af_af + #ph2 - 2.0 * #saMax * (#aT + #sjMax * #tf);
+            #ph4 := 2.0 * #saMax * #sjMax * #g1 + #saMax * #saMax * #vd + #sjMax * #vd_vd;
+            #poly0 := (4.0 * #a0 - 2.0 * #saMax) / #sjMax;
+            #poly1 := (4.0 * #a0_a0 - 3.0 * #a0 * #saMax + #ph1) / #jMax_jMax;
+            #poly2 := (2.0 * #a0 * #ph1) / #den_jjj;
+            #num := 3.0 * (#a0_p4 + #af_p4) - 4.0 * (#a0_p3 + 2.0 * #af_p3) * #saMax
+                - 24.0 * #aT * #saMax * #sjMax * #vd + 12.0 * #sjMax * #ph4
+                - 6.0 * #a0_a0 * #ph3 + 6.0 * #af_af * #ph2;
+            #poly3 := #num / #den_12jjjj;
+
+            #tMinW := -#a0 / #sjMax;
+            #tMaxW := (#tf + #ad / #sjMax - 2.0 * #saMax / #sjMax) / 2.0;
+            #num := (#saMax - #a0) / #sjMax;
+            IF #num < #tMaxW THEN
+                #tMaxW := #num;
+            END_IF;
+
+            "SolveQuartic"(a := 1.0, b := #poly0, c := #poly1, d := #poly2, e := #poly3,
+                roots => #roots, count => #rootCount);
+
+            FOR #k := 0 TO #rootCount - 1 DO
+                #t := #roots[#k];
+                IF #t >= #tMinW AND #t <= #tMaxW THEN
+                    #h1 := ((#a0_a0 - #af_af) / 2.0 + #jMax_jMax * #t * #t - #sjMax * (#vd - 2.0 * #a0 * #t)) / #saMax;
+                    #profile.t[0] := #t;
+                    #profile.t[1] := 0.0;
+                    #profile.t[2] := #t + #a0 / #sjMax;
+                    #profile.t[3] := #tf + (#h1 + #ad - #saMax) / #sjMax - 2.0 * #t;
+                    #profile.t[4] := #saMax / #sjMax;
+                    #profile.t[5] := -(#h1 + #saMax) / #sjMax;
+                    #profile.t[6] := #profile.t[4] - #aT / #sjMax;
+                    #profile.j[0] := #sjMax;
+                    #profile.j[1] := 0.0;
+                    #profile.j[2] := -#sjMax;
+                    #profile.j[3] := 0.0;
+                    #profile.j[4] := #sjMax;
+                    #profile.j[5] := 0.0;
+                    #profile.j[6] := -#sjMax;
+                    #profile.direction := 1;
+                    #profile.controlSigns := 1;
+                    #ok := "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                        pT := #pT, vT := #vT, aT := #aT, vMax := #vMaxMag, aMax := #aMaxMag, tf := #tf);
+                    IF #ok THEN
+                        #found := true;
+                        RETURN;
+                    END_IF;
+                END_IF;
+            END_FOR;
+        END_REGION
+    END_NETWORK
+END_FUNCTION
