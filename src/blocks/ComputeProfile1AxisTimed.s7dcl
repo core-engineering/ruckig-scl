@@ -90,13 +90,18 @@ FUNCTION "ComputeProfile1AxisTimed" : Word
         END_REGION
 
         REGION No-plateau families (primary then reversed)
-            // NOTE (v0.3): these no-plateau families are kept OUT of the dispatch
-            // until time_vel (VEL) is ported. Ruckig tries VEL before the
-            // no-plateau families; with VEL still stubbed, the "greedy"
-            // time_acc0_acc1 (free jerk) would capture VEL cases with a valid but
-            // non-Ruckig profile (masking -> wrong trajectory). Re-enable in
-            // dispatch order once SolveTimedVel lands. The family FCs themselves
-            // (SolveTimedAcc0Acc1, ...) are implemented/ready.
+            // Enabled after time_vel (VEL is tried first above), so the greedy
+            // free-jerk acc0_acc1 no longer masks VEL cases. acc0/acc1/none may
+            // still be stubs (no-op) until their tasks land.
+            "SolveTimedAcc0Acc1"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMax, svMin := #svMin, saMax := #saMax, saMin := #saMin, sjMax := #sjMax, tf := #tf);
+            "SolveTimedAcc0"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMax, svMin := #svMin, saMax := #saMax, saMin := #saMin, sjMax := #sjMax, tf := #tf);
+            "SolveTimedAcc1"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMax, svMin := #svMin, saMax := #saMax, saMin := #saMin, sjMax := #sjMax, tf := #tf);
+            "SolveTimedNone"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMax, svMin := #svMin, saMax := #saMax, saMin := #saMin, sjMax := #sjMax, tf := #tf);
+
+            "SolveTimedAcc0Acc1"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMin, svMin := #svMax, saMax := #saMin, saMin := #saMax, sjMax := -#sjMax, tf := #tf);
+            "SolveTimedAcc0"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMin, svMin := #svMax, saMax := #saMin, saMin := #saMax, sjMax := -#sjMax, tf := #tf);
+            "SolveTimedAcc1"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMin, svMin := #svMax, saMax := #saMin, saMin := #saMax, sjMax := -#sjMax, tf := #tf);
+            "SolveTimedNone"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT, svMax := #svMin, svMin := #svMax, saMax := #saMin, saMin := #saMax, sjMax := -#sjMax, tf := #tf);
         END_REGION
 
         REGION Finalise
