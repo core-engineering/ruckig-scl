@@ -241,6 +241,20 @@ def test_acc0_valid(harness, v0, a0, vT, aT, pd, k):
     _assert_timed_valid(harness, *args, _t_min(*args) * k)
 
 
+# T13-15: NONE family (no limit reached). Validity-based. (v0,a0,vT,aT,pd,k).
+_NONE_CASES = [
+    (0.0, 0.0, 1.0, 2.0, 0.3, 1.1),    # a3 != 0 (T0234)
+    (0.0, 0.0, 0.0, 0.0, 0.3, 1.5),    # a0=v0=af=0 free-jerk
+    (1.0, 0.0, 0.0, 2.0, 0.3, 1.1),
+]
+
+
+@pytest.mark.parametrize("v0,a0,vT,aT,pd,k", _NONE_CASES)
+def test_none_valid(harness, v0, a0, vT, aT, pd, k):
+    args = (0.0, v0, a0, pd, vT, aT)
+    _assert_timed_valid(harness, *args, _t_min(*args) * k)
+
+
 def test_oracle_timed_reaches_target():
     """The stretched trajectory still reaches the final state at tf."""
     args = (0.0, 0.5, 0.0, 1.0, 0.5, 0.0)
