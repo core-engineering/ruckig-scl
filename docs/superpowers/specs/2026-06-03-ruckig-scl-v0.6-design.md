@@ -6,12 +6,22 @@
 **Status** : Design draft, pending plan
 
 **Scope:** Complete the multi-axis synchronization feature set by making the
-mode decision **per-axis** and adding the two remaining knobs:
-- **`per_dof_synchronization`** — each axis independently `No` / `Time` / `Phase`.
+non-Phase mode decision **per-axis** and adding the remaining knobs:
+- **`per_dof_synchronization`** — each axis independently `No` / `Time` /
+  `TimeIfNecessary`. **Phase stays a global mode** (see below).
 - **`TimeIfNecessary`** — synchronize an axis only if its target is moving
   (`vT ≠ 0` or `aT ≠ 0`); otherwise leave it at its time-optimal duration.
 - **`DurationDiscretization.Discrete`** — round `t_sync` up to a multiple of the
   control cycle, then re-time every synchronized axis to that discrete duration.
+
+**Phase stays global (key scoping decision).** Oracle probing showed Ruckig
+abandons phase synchronization for the whole group as soon as ANY synchronized
+axis is `Time` (its early-return requires every non-`None` axis to be `Phase`).
+A `Phase`+`Time` mix therefore reduces to `Time` in Ruckig anyway. So `Phase`
+remains the **global** `synchronization = SYNC_PHASE` mode (the unchanged v0.5
+`PhaseSynchronize` path); a `Phase` value appearing in `perDofSynchronization`
+is treated as `Time`. This keeps `PhaseSynchronize` untouched (no regression
+risk) and matches Ruckig's effective behaviour for the common cases.
 
 Builds on v0.4 (Block → Synchronize → step2) and v0.5 (Phase / No). The global
 synchronization modes become the special case "all axes share one mode".
@@ -48,33 +58,41 @@ moving-target one is time-synced. `per_dof` lets a `No` axis run free while a
 
 ## 2. Unified per-axis flow
 
-The multi-axis recompute (replacing v0.5's global No/Phase/Time branches) is:
+`RuckigOtg`'s multi-axis recompute has two branches:
+- **Global `synchronization = SYNC_PHASE`** → the **unchanged v0.5
+  `PhaseSynchronize` path**; on `phaseOk = false` (non-collinear) it falls back
+  to the unified flow below run as all-`Time`.
+- **Otherwise** → the **unified per-axis flow** below (subsumes the v0.5 global
+  `No` and `Time` branches and adds `TimeIfNecessary` / per-DoF / Discrete).
+
+The unified per-axis flow:
 
 1. **Resolve the effective mode per axis:** `m[ax] = perDofSynchronization[ax]`
-   if `≠ -1`, else the global `synchronization`. (`TimeIfNecessary` stays as a
-   mode here; it resolves at emission.)
-2. **Block per axis:** `ComputeBlock1Axis` for every axis (`tMin` + blocked
-   intervals).
-3. **Participation mask:** `participates[ax] = (m[ax] ≠ SYNC_NONE)`. Only `No`
-   axes are excluded from `t_sync`; `Time`, `Phase`, `TimeIfNecessary` all
-   participate (faithful to Ruckig `synchronize()`, where only
-   `Synchronization::None` is excluded).
+   if `≠ -1`, else the global `synchronization`. A `SYNC_PHASE` value here (only
+   possible from a per-DoF entry) is treated as `SYNC_TIME`. So `m[ax] ∈ {No,
+   Time, TimeIfNecessary}`.
+2. **Participation mask:** `participates[ax] = (m[ax] ≠ SYNC_NONE)`. Only `No`
+   axes are excluded from `t_sync`; `Time` and `TimeIfNecessary` participate
+   (faithful to Ruckig `synchronize()`, where only `Synchronization::None`
+   contributes 0 to the lower bound).
+3. **Block per participating axis:** `ComputeBlock1Axis` (`tMin` + blocked
+   intervals) for axes where `participates[ax]`. (It has its own already-at-
+   target guard.)
 4. **`t_sync`** = `Synchronize` over participating axes (smallest common
    non-blocked duration `≥ max(tMin of participating axes)`), plus the limiting
-   axis (slowest participating). If `durationDiscretization = DISC_DISCRETE`:
+   axis. If `durationDiscretization = DISC_DISCRETE`:
    `t_sync := ceil(t_sync / cycleTime) · cycleTime`, then advance by `cycleTime`
    while the result is blocked for any participating axis (bounded loop). A
-   `2·eps` slack guards the ceil (as in Ruckig).
-5. **Emission per axis** (by `m[ax]`):
+   `2·eps` slack guards the ceil (as in Ruckig). If no participating axis exists
+   (all `No`), `t_sync` is unused.
+5. **Emission per axis** (by `m[ax]`), each guarded for the already-at-target
+   degenerate case (zero-fill, as in v0.5 — the critical zero-displacement fix):
    - **No** → step1 profile (`ComputeProfile1Axis`), its own duration.
    - **Time** → `ComputeProfile1AxisTimed(t_sync)`.
    - **TimeIfNecessary** → moving target (`|vT| > eps` or `|aT| > eps`):
      `step2(t_sync)`; rest target: step1 (free).
-   - **Phase** → scaled from the limiting axis's profile at `t_sync` (collinear
-     phase subgroup); on collinearity/limit failure the axis falls back to
-     `step2(t_sync)` (treated as Time).
 6. `trajectory.duration = max` over all axes; `independentMinDurations[ax] =
-   block.tMin`.
+   block.tMin` (participating) or the axis's own step1 duration (`No`).
 
 The 1-DoF path (`multiPath = false`) is unchanged (strict-parity guard).
 
@@ -103,21 +121,21 @@ participating axis (bounded by a small iteration cap). The v0.4/v0.5 Time path
 calls it with an all-true mask and `discrete = false` → identical result
 (regression guard).
 
-### 3.3 `PhaseSynchronize` (generalized)
-v0.5 computed its own reference (per-axis step1, slowest = reference) and scaled
-**all** axes. v0.6 generalizes it to: given the **reference profile** (the
-limiting axis at `t_sync`, already re-timed) and a per-axis **`isPhase` mask**,
-test collinearity of the phase subgroup against the reference and scale only the
-phase axes (shared `t[]`, jerk `× kd = sval[ax]/sval[refAx]`), validating each
-with `CheckProfile(tf := t_sync)`. The all-axes-phase, self-computed-reference
-case (v0.5 global Phase) remains expressible (reference = slowest, mask = all).
+### 3.3 `PhaseSynchronize` (unchanged)
+**No change.** Phase is a global mode, so the v0.5 `PhaseSynchronize` (computes
+its own slowest-axis reference, scales all axes, collinearity + per-axis
+`CheckProfile`) is reused as-is for `synchronization = SYNC_PHASE`. On
+`phaseOk = false` the FB falls back to the unified flow as all-`Time`. Keeping it
+untouched removes phase-related regression risk.
 
 ### 3.4 `RuckigOtg`
-The multi-axis block becomes the unified flow of §2. Mode resolution is a small
-inline step (or a helper `ResolveSyncModes` filling `modeEff[ax]` and
-`participates[ax]`). Brake fields are zeroed per axis (no multi-axis brake, as in
-v0.4). Change detection already covers `synchronization` (v0.5); it additionally
-recomputes on a change to `perDofSynchronization` or `durationDiscretization`.
+Multi-axis recompute: keep the `SYNC_PHASE` branch (calls v0.5
+`PhaseSynchronize`, falls back to the unified all-`Time` flow); **replace** the
+v0.5 global `No` and `Time` branches with the unified per-axis flow of §2. Mode
+resolution is a small inline step filling `modeEff[ax]` and `participates[ax]`.
+Brake fields are zeroed per axis (no multi-axis brake, as in v0.4). Change
+detection already covers `synchronization` (v0.5); it additionally recomputes on
+a change to `perDofSynchronization` or `durationDiscretization`.
 
 ## 4. Testing
 
@@ -151,22 +169,23 @@ recomputes on a change to `perDofSynchronization` or `durationDiscretization`.
 
 | Block | Status | Role |
 |-------|--------|------|
-| `RuckigOtg` (FB) | modified | unified per-axis multi-axis flow (subsumes v0.5 global modes) |
+| `RuckigOtg` (FB) | modified | keep SYNC_PHASE branch; replace global No/Time branches with the unified per-axis flow |
 | `Synchronize` (FC) | modified | + participation mask, + Discrete rounding |
-| `PhaseSynchronize` (FC) | modified | generalized: scale a phase subgroup to a supplied reference |
+| `PhaseSynchronize` (FC) | **reused, unchanged** | global Phase mode (v0.5) + Time fallback |
 | `typeRuckigInput` (UDT) | modified | + `perDofSynchronization`; `durationDiscretization` activated |
+| `dbRuckigConst` (DB) | modified | + `SYNC_TIME_IF_NECESSARY := 4` |
 | `ComputeBlock1Axis`, `ComputeProfile1Axis`, `ComputeProfile1AxisTimed` | reused | per-axis Block / step1 / step2 |
 
 ## 6. Risks / open points
 
-- **Phase in a mixed bag** is the subtle part: the phase reference is the
-  limiting axis's profile at `t_sync` (which may itself be a `Time` axis). The
-  per-axis `CheckProfile` is the backstop — a phase axis that cannot match the
-  reference within limits falls back to `step2(t_sync)`, never emitting a wrong
-  trajectory (matches Ruckig abandoning phase sync when infeasible).
+- **Phase is kept global** (scoping decision above), so the subtle Phase-in-mix
+  case is avoided. A `SYNC_PHASE` value in `perDofSynchronization` is treated as
+  `Time` — documented behaviour, matching Ruckig's effective outcome (a
+  Phase+Time mix reduces to Time there too). Full per-DoF Phase is deferred.
 - **Discrete + blocked intervals**: rounding `t_sync` up to a dt multiple may
   land inside a blocked interval; the bounded advance-by-dt loop steps out of it.
   A small iteration cap prevents any unbounded loop on a PLC.
 - **Regression of the global modes** is the chief integration risk; it is fully
   covered by the existing 195 tests + 31 parity scenarios, which the unified
-  flow must reproduce exactly.
+  flow must reproduce exactly (global `No` = all-No; global `Time` = all-Time;
+  global `Phase` keeps its own untouched branch).
