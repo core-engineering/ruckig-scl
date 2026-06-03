@@ -84,3 +84,21 @@ def test_discrete_rounds_up_to_cycle_grid(harness):
                           discrete=True, cycle_time=0.3)
     assert ok is True
     assert tsync == pytest.approx(2.1, abs=1e-9)
+
+
+def test_discrete_rounding_jumps_blocked_interval(harness):
+    # tMin=2.0 (free), blocked interval (2.05, 2.9). Continuous t_sync = 2.0.
+    # discrete dt=0.3: ceil(2.0/0.3)=2.1 lands inside (2.05,2.9) -> jump to the
+    # right edge 2.9, ceiled to grid -> 3.0.
+    ok, tsync, lim = _run(harness, [_blk(2.0, aValid=True, aLeft=2.05, aRight=2.9),
+                                    _blk(1.0)], 2, discrete=True, cycle_time=0.3)
+    assert ok is True
+    assert tsync == pytest.approx(3.0, abs=1e-9)
+
+
+def test_all_no_axes_resolve_to_minimum_duration(harness):
+    # No participating axis -> resolved, t_sync = tStart (minimumDuration here).
+    ok, tsync, lim = _run(harness, [_blk(1.0), _blk(2.0)], 2,
+                          participates=[False, False], minimum_duration=1.5)
+    assert ok is True
+    assert tsync == pytest.approx(1.5)

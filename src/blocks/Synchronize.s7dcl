@@ -12,7 +12,7 @@ FUNCTION "Synchronize" : Void
     VAR_INPUT
         nDofs           : Int;
         minimumDuration : LReal;   // sentinel < 0 = none
-        participates    : Array[0..3] of Bool;   // axes excluded from t_sync (No)
+        participates    : Array[0..3] of Bool;   // TRUE = axis joins t_sync (Time); FALSE = No axis, excluded
         discrete        : Bool;    // round t_sync up to a cycleTime grid
         cycleTime       : LReal;
     END_VAR
@@ -156,6 +156,7 @@ FUNCTION "Synchronize" : Void
                     #tSync := #tFloor;
                 END_IF;
                 #stepDone := false;
+                // at most 4 DoFs x 2 intervals = 8 jumps; 9 steps always suffice
                 FOR #g := 0 TO 8 DO
                     IF NOT #stepDone THEN
                         #blocked := false;
