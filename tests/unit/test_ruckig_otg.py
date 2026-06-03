@@ -527,3 +527,22 @@ def test_per_dof_no_axis_longer_than_time_axis(harness):
     assert reached1 is not None and reached1 > 250, f"Time axis finished too early at cycle {reached1}"
     assert harness.get_output("output").newPosition[0] == pytest.approx(5.0, abs=1e-3)
     assert harness.get_output("output").newPosition[1] == pytest.approx(1.0, abs=1e-3)
+
+
+def test_single_axis_cruise_through_target_not_frozen(harness):
+    """Single-axis, start STATE == target STATE with v0=vT!=0: the time-optimal
+    move is a there-and-back (~1.79 s), not a frozen zero-duration hold.
+    Regression for the single-axis at-target guard."""
+    inp = default_input()
+    inp["nDofs"] = 1
+    inp["currentVelocity"] = [1.0, 0.0, 0.0, 0.0]
+    inp["targetPosition"] = [0.0, 0.0, 0.0, 0.0]   # p0 = pT = 0
+    inp["targetVelocity"] = [1.0, 0.0, 0.0, 0.0]   # v0 = vT = 1
+    inp["maxVelocity"] = [2.0] * 4
+    inp["maxAcceleration"] = [5.0] * 4
+    inp["maxJerk"] = [10.0] * 4
+    harness.set_inputs(enable=True, input=inp, cycleTime=0.010, reset=False)
+    harness.execute()
+    assert harness.get_output("error") is False
+    dur = harness.get_output("output").trajectoryDuration
+    assert dur == pytest.approx(1.7889, abs=1e-3), f"expected ~1.79s there-and-back, got {dur}"

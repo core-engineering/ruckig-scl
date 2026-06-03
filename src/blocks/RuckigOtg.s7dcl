@@ -192,7 +192,9 @@ FUNCTION_BLOCK "RuckigOtg"
                     #atTarget :=
                         ABS(#input.targetPosition[0] - #chainPos[0]) < "dbRuckigConst".EPS_POSITION
                         AND ABS(#input.targetVelocity[0] - #chainVel[0]) < "dbRuckigConst".EPS_VELOCITY
-                        AND ABS(#input.targetAcceleration[0] - #chainAcc[0]) < "dbRuckigConst".EPS_DERIV;
+                        AND ABS(#input.targetAcceleration[0] - #chainAcc[0]) < "dbRuckigConst".EPS_DERIV
+                        AND ABS(#chainVel[0]) < "dbRuckigConst".EPS_VELOCITY
+                        AND ABS(#chainAcc[0]) < "dbRuckigConst".EPS_DERIV;
                     IF #atTarget THEN
                         FOR #i := 0 TO 6 DO
                             #trajectory.profiles[0].t[#i] := 0.0;
