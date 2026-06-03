@@ -50,6 +50,11 @@ def run_scl(
     runtime = PLCRuntime(block_search_paths=list(SEARCH_PATHS))
     harness = create_harness(FB_PATH, runtime=runtime)
 
+    pds = (
+        (list(per_dof_synchronization) + [-1] * 4)[:4]
+        if per_dof_synchronization is not None
+        else [-1, -1, -1, -1]
+    )
     inp = {
         "currentPosition": _pad(current_pos),
         "currentVelocity": _pad(current_vel),
@@ -65,7 +70,7 @@ def run_scl(
         "minimumDuration": minimum_duration,
         "controlInterface": 0,
         "synchronization": synchronization,
-        "perDofSynchronization": (list(per_dof_synchronization) + [-1] * 4)[:4] if per_dof_synchronization is not None else [-1, -1, -1, -1],
+        "perDofSynchronization": pds,
         "durationDiscretization": duration_discretization,
     }
 

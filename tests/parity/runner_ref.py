@@ -14,6 +14,7 @@ import ruckig
 _SYNC_MAP = {0: ruckig.Synchronization.No, 1: ruckig.Synchronization.Phase,
              2: ruckig.Synchronization.Time,
              4: ruckig.Synchronization.TimeIfNecessary}
+# key 3 (SYNC_PER_DOF) is an SCL dispatcher sentinel; it has no ruckig enum counterpart
 
 _DISC_MAP = {0: ruckig.DurationDiscretization.Continuous, 1: ruckig.DurationDiscretization.Discrete}
 
