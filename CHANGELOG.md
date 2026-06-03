@@ -3,6 +3,58 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-06-03
+
+**Multi-axis time synchronization.** `RuckigOtg` now drives up to 4 DoFs so that
+every axis reaches its target at the same instant `t_sync`. This wires the v0.3
+single-axis step2 into Ruckig's full Block → synchronize → re-time pipeline.
+
+### Added
+- `ComputeBlock1Axis` (FC) — runs the step1 families collecting *every* valid
+  candidate duration, then derives the reachable-duration `Block`: `tMin` plus up
+  to two **blocked intervals** (durations that no jerk-limited profile can
+  achieve). Port of Ruckig `Block::calculate_block` (`block.hpp`), durations
+  only. Includes an already-at-target degenerate guard (`tMin = 0`).
+- `Synchronize` (FC) — given each DoF's `Block`, finds `t_sync` = the smallest
+  common duration `>= max(tMin)` that is **not blocked** for any axis (skipping
+  blocked intervals by jumping to their right edge), plus the limiting axis. Port
+  of Ruckig `TargetCalculator::synchronize` (Time mode).
+- `typeBlock` / `typeBlockSet` UDTs — per-DoF reachable-duration blocks (the
+  wrapper `typeBlockSet` exists because an array-of-UDT cannot be a direct FC
+  parameter).
+- `typeRuckigInput.minimumDuration` (sentinel `< 0` = none) — impose a floor on
+  the trajectory duration.
+- `dbRuckigConst.RESULT_ERR_SYNC` (0x8603).
+
+### Changed
+- `RuckigOtg` (FB) refactored single-axis → multi-DoF, with two solve paths:
+  - **1 DoF and no `minimumDuration`** → the v0.3 step1 stack (brake +
+    `ComputeProfile1Axis`), kept identical (strict-parity regression guard).
+  - **>1 DoF or `minimumDuration` set** → v0.4: `ComputeBlock1Axis` per axis →
+    `Synchronize` → `ComputeProfile1AxisTimed(tf = t_sync)` per axis.
+  Chain state, change detection, sampling and `pass_to_input` are generalized to
+  N DoFs.
+- The brake pre-phase now seeds the post-brake state from `profile.brake`
+  (reliable VAR_IN_OUT) instead of the FC's `=>` outputs — the latter are dropped
+  by the transpiler when a function's return value is consumed, which had
+  silently mis-seeded the 1-DoF over-`vMax` first-enable path. It is now
+  C1-continuous across the brake/main junction.
+
+### Parity
+- 9 new multi-DoF scenarios (`v04_01`..`v04_09`): 2–4 DoF rest sync, heavily
+  stretched fast axis, moving targets, full arbitrary states, **blocked-interval
+  synchronization** (`max(tMin)` lands in an axis's blocked interval, so `t_sync`
+  advances to the interval's right edge), heterogeneous limits, and
+  `minimum_duration` (1- and 2-DoF). All match Ruckig at the floating-point floor
+  (~1e-15), duration exact. 27 parity scenarios total. 181 tests pass.
+
+### Known limitations
+- **No brake pre-phase in the multi-axis path** — multi-DoF assumes initial
+  states within limits; the brake machinery runs only on the 1-DoF path.
+- **Time synchronization only** — `Phase` / `None` / per-DoF synchronization
+  modes and duration discretization are not implemented.
+- step1 (time-optimal) retains its ~3% arbitrary-state gaps from v0.2.
+
 ## [0.3.0] - 2026-06-03
 
 Single-axis **step2**: re-time a move to an imposed duration `tf >= t_min`.
@@ -134,6 +186,7 @@ out-of-limits first enable. Builds on the v0.1 FB/UDT layer.
   returns `RESULT_ERR_SOLVER` if ever required): the zero-limits special case
   and the two-step fallbacks (`time_*_two_step`).
 
+[0.4.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.4.0
 [0.3.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.3.0
 [0.2.1]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.2.1
 [0.2.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.2.0
