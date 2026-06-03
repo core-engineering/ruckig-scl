@@ -280,20 +280,36 @@ FUNCTION_BLOCK "RuckigOtg"
                     IF #input.synchronization = "dbRuckigConst".SYNC_NONE THEN
                         #mainDuration := 0.0;
                         FOR #ax := 0 TO #nd - 1 DO
-                            #profileResult := "ComputeProfile1Axis"(profile := #trajectory.profiles[#ax],
-                                p0 := #chainPos[#ax], v0 := #chainVel[#ax], a0 := #chainAcc[#ax],
-                                pT := #input.targetPosition[#ax], vT := #input.targetVelocity[#ax],
-                                aT := #input.targetAcceleration[#ax],
-                                vMax := #input.maxVelocity[#ax], aMax := #input.maxAcceleration[#ax],
-                                jMax := #input.maxJerk[#ax]);
-                            IF #profileResult <> "dbRuckigConst".RESULT_WORKING AND #profileResult <> "dbRuckigConst".RESULT_FINISHED THEN
-                                #valid := false;
-                                #busy := false;
-                                #done := false;
-                                #error := true;
-                                #status := "dbRuckigConst".RESULT_ERR_TRAJ;
-                                #trajectory.isValid := false;
-                                RETURN;
+                            #atTarget :=
+                                ABS(#input.targetPosition[#ax] - #chainPos[#ax]) < "dbRuckigConst".EPS_POSITION
+                                AND ABS(#input.targetVelocity[#ax] - #chainVel[#ax]) < "dbRuckigConst".EPS_VELOCITY
+                                AND ABS(#input.targetAcceleration[#ax] - #chainAcc[#ax]) < "dbRuckigConst".EPS_DERIV;
+                            IF #atTarget THEN
+                                FOR #i := 0 TO 6 DO
+                                    #trajectory.profiles[#ax].t[#i] := 0.0;
+                                    #trajectory.profiles[#ax].j[#i] := 0.0;
+                                END_FOR;
+                                FOR #i := 0 TO 7 DO
+                                    #trajectory.profiles[#ax].a[#i] := #chainAcc[#ax];
+                                    #trajectory.profiles[#ax].v[#i] := #chainVel[#ax];
+                                    #trajectory.profiles[#ax].p[#i] := #chainPos[#ax];
+                                END_FOR;
+                            ELSE
+                                #profileResult := "ComputeProfile1Axis"(profile := #trajectory.profiles[#ax],
+                                    p0 := #chainPos[#ax], v0 := #chainVel[#ax], a0 := #chainAcc[#ax],
+                                    pT := #input.targetPosition[#ax], vT := #input.targetVelocity[#ax],
+                                    aT := #input.targetAcceleration[#ax],
+                                    vMax := #input.maxVelocity[#ax], aMax := #input.maxAcceleration[#ax],
+                                    jMax := #input.maxJerk[#ax]);
+                                IF #profileResult <> "dbRuckigConst".RESULT_WORKING AND #profileResult <> "dbRuckigConst".RESULT_FINISHED THEN
+                                    #valid := false;
+                                    #busy := false;
+                                    #done := false;
+                                    #error := true;
+                                    #status := "dbRuckigConst".RESULT_ERR_TRAJ;
+                                    #trajectory.isValid := false;
+                                    RETURN;
+                                END_IF;
                             END_IF;
                             #trajectory.profiles[#ax].brake.t[0] := 0.0;
                             #trajectory.profiles[#ax].brake.t[1] := 0.0;

@@ -376,3 +376,46 @@ def test_sync_phase_non_collinear_falls_back(harness):
     assert p1 == pytest.approx(3.0, abs=1e-3)
 
 
+def test_sync_no_with_stationary_axis(harness):
+    """SYNC_NO with one axis already at target (pd=0): must not crash; the moving
+    axis reaches its target and the stationary axis holds."""
+    inp = default_input()
+    inp["nDofs"] = 2
+    inp["synchronization"] = 0
+    inp["enabled"] = [True, True, False, False]
+    inp["targetPosition"] = [1.0, 0.0, 0.0, 0.0]  # axis1 stays at 0
+    inp["maxVelocity"] = [2.0] * 4
+    inp["maxAcceleration"] = [5.0] * 4
+    inp["maxJerk"] = [10.0] * 4
+    for _cyc in range(800):
+        harness.set_inputs(enable=True, input=inp, cycleTime=0.010, reset=False)
+        harness.execute()
+        assert harness.get_output("error") is False
+        if harness.get_output("done"):
+            break
+    out = harness.get_output("output")
+    assert out.newPosition[0] == pytest.approx(1.0, abs=1e-3)
+    assert out.newPosition[1] == pytest.approx(0.0, abs=1e-6)
+
+
+def test_sync_phase_with_stationary_axis(harness):
+    """SYNC_PHASE with one axis at target (pd=0): must not crash; both reach target."""
+    inp = default_input()
+    inp["nDofs"] = 2
+    inp["synchronization"] = 1
+    inp["enabled"] = [True, True, False, False]
+    inp["targetPosition"] = [1.0, 0.0, 0.0, 0.0]
+    inp["maxVelocity"] = [3.0] * 4
+    inp["maxAcceleration"] = [5.0] * 4
+    inp["maxJerk"] = [10.0] * 4
+    for _cyc in range(800):
+        harness.set_inputs(enable=True, input=inp, cycleTime=0.010, reset=False)
+        harness.execute()
+        assert harness.get_output("error") is False
+        if harness.get_output("done"):
+            break
+    out = harness.get_output("output")
+    assert out.newPosition[0] == pytest.approx(1.0, abs=1e-3)
+    assert out.newPosition[1] == pytest.approx(0.0, abs=1e-6)
+
+

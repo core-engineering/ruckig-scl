@@ -1,0 +1,10 @@
+name: v0.5 2-DoF no-sync with a stationary axis
+# SYNC_NO where axis1 is already at its target (pd=0). Must match Ruckig and not
+# fault on the degenerate axis.
+n_dofs: 2
+synchronization: 0
+target_position: [1.0, 0.0]
+max_velocity: [2.0, 2.0]
+max_acceleration: [5.0, 5.0]
+max_jerk: [10.0, 10.0]
+cycle_time: 0.010

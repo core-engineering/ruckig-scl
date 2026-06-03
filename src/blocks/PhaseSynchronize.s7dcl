@@ -21,26 +21,27 @@ FUNCTION "PhaseSynchronize" : Void
         duration : LReal;
     END_VAR
     VAR_TEMP
-        ax      : Int;
-        i       : DInt;
-        refAx   : Int;
-        scaleAx : Int;
-        scaleQ  : Int;
-        res     : Word;
-        dur     : LReal;
-        durBest : LReal;
-        pd      : Array[0..3] of LReal;
-        sval    : Array[0..3] of LReal;
-        rPd     : LReal;
-        rV0     : LReal;
-        rA0     : LReal;
-        rVt     : LReal;
-        rAt     : LReal;
-        denom   : LReal;
-        kd      : LReal;
-        cs      : LReal;
-        ok      : Bool;
-        epsP    : LReal;
+        ax       : Int;
+        i        : DInt;
+        refAx    : Int;
+        scaleAx  : Int;
+        scaleQ   : Int;
+        res      : Word;
+        dur      : LReal;
+        durBest  : LReal;
+        pd       : Array[0..3] of LReal;
+        sval     : Array[0..3] of LReal;
+        rPd      : LReal;
+        rV0      : LReal;
+        rA0      : LReal;
+        rVt      : LReal;
+        rAt      : LReal;
+        denom    : LReal;
+        kd       : LReal;
+        cs       : LReal;
+        ok       : Bool;
+        epsP     : LReal;
+        atTarget : Bool;
     END_VAR
 
     { S7_Language := "SCL" }
@@ -70,20 +71,37 @@ FUNCTION "PhaseSynchronize" : Void
             #refAx := 0;
             #durBest := -1.0;
             FOR #ax := 0 TO #nDofs - 1 DO
-                #res := "ComputeProfile1Axis"(profile := #trajectory.profiles[#ax],
-                    p0 := #chainPos[#ax], v0 := #chainVel[#ax], a0 := #chainAcc[#ax],
-                    pT := #input.targetPosition[#ax], vT := #input.targetVelocity[#ax],
-                    aT := #input.targetAcceleration[#ax],
-                    vMax := #input.maxVelocity[#ax], aMax := #input.maxAcceleration[#ax],
-                    jMax := #input.maxJerk[#ax]);
-                IF #res <> "dbRuckigConst".RESULT_WORKING AND #res <> "dbRuckigConst".RESULT_FINISHED THEN
-                    RETURN;
-                END_IF;
                 #pd[#ax] := #input.targetPosition[#ax] - #chainPos[#ax];
-                #dur := 0.0;
-                FOR #i := 0 TO 6 DO
-                    #dur := #dur + #trajectory.profiles[#ax].t[#i];
-                END_FOR;
+                #atTarget :=
+                    ABS(#pd[#ax]) < "dbRuckigConst".EPS_POSITION
+                    AND ABS(#input.targetVelocity[#ax] - #chainVel[#ax]) < "dbRuckigConst".EPS_VELOCITY
+                    AND ABS(#input.targetAcceleration[#ax] - #chainAcc[#ax]) < "dbRuckigConst".EPS_DERIV;
+                IF #atTarget THEN
+                    FOR #i := 0 TO 6 DO
+                        #trajectory.profiles[#ax].t[#i] := 0.0;
+                        #trajectory.profiles[#ax].j[#i] := 0.0;
+                    END_FOR;
+                    FOR #i := 0 TO 7 DO
+                        #trajectory.profiles[#ax].a[#i] := #chainAcc[#ax];
+                        #trajectory.profiles[#ax].v[#i] := #chainVel[#ax];
+                        #trajectory.profiles[#ax].p[#i] := #chainPos[#ax];
+                    END_FOR;
+                    #dur := 0.0;
+                ELSE
+                    #res := "ComputeProfile1Axis"(profile := #trajectory.profiles[#ax],
+                        p0 := #chainPos[#ax], v0 := #chainVel[#ax], a0 := #chainAcc[#ax],
+                        pT := #input.targetPosition[#ax], vT := #input.targetVelocity[#ax],
+                        aT := #input.targetAcceleration[#ax],
+                        vMax := #input.maxVelocity[#ax], aMax := #input.maxAcceleration[#ax],
+                        jMax := #input.maxJerk[#ax]);
+                    IF #res <> "dbRuckigConst".RESULT_WORKING AND #res <> "dbRuckigConst".RESULT_FINISHED THEN
+                        RETURN;
+                    END_IF;
+                    #dur := 0.0;
+                    FOR #i := 0 TO 6 DO
+                        #dur := #dur + #trajectory.profiles[#ax].t[#i];
+                    END_FOR;
+                END_IF;
                 IF #dur > #durBest THEN
                     #durBest := #dur;
                     #refAx := #ax;
