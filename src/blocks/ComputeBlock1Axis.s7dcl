@@ -52,6 +52,23 @@ FUNCTION "ComputeBlock1Axis" : Word
             //==========================================================
         END_REGION
 
+        REGION Already-at-target degenerate guard
+            // If the seed already equals the target, there is nothing to solve
+            // (the family formulas divide by zero on the fully-degenerate input).
+            // tMin = 0, no blocked interval. Needed for multi-axis: an axis that
+            // starts on its target must still synchronize (step2 holds it).
+            IF ABS(#pT - #p0) < "dbRuckigConst".EPS_POSITION
+                AND ABS(#vT - #v0) < "dbRuckigConst".EPS_VELOCITY
+                AND ABS(#aT - #a0) < "dbRuckigConst".EPS_DERIV THEN
+                #block.tMin   := 0.0;
+                #block.found  := true;
+                #block.aValid := false;
+                #block.bValid := false;
+                #ComputeBlock1Axis := "dbRuckigConst".RESULT_WORKING;
+                RETURN;
+            END_IF;
+        END_REGION
+
         REGION Run step1 families collecting all valid durations
             #bestDuration := 1.0E30;
             #found        := false;

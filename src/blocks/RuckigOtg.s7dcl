@@ -3,7 +3,7 @@
     S7_EditorMode := "SCL";
     S7_Family := "Ruckig";
     S7_Optimized := "TRUE";
-    S7_Version := "0.2.0"
+    S7_Version := "0.4.0"
 }
 FUNCTION_BLOCK "RuckigOtg"
     VAR_INPUT
@@ -24,22 +24,24 @@ FUNCTION_BLOCK "RuckigOtg"
         trajectory : _.typeTrajectory;
         prevInput  : _.typeRuckigInput;
         firstCall  : Bool := true;
-        // pass_to_input chain state: last commanded setpoint, seeds the next
-        // solve so a retarget is C2-continuous (no jump on the commanded axis).
-        chainPos   : LReal := 0.0;
-        chainVel   : LReal := 0.0;
-        chainAcc   : LReal := 0.0;
+        // pass_to_input chain state, per DoF: last commanded setpoint, seeds the
+        // next solve so a retarget is C2-continuous (no jump on each axis).
+        chainPos   : Array[0..3] of LReal;
+        chainVel   : Array[0..3] of LReal;
+        chainAcc   : Array[0..3] of LReal;
+        // per-DoF reachable-duration blocks (multi-axis time synchronization)
+        blockSet   : _.typeBlockSet;
     END_VAR
     VAR_TEMP
         validationResult  : Word;
         profileResult     : Word;
         recomputeRequired : Bool;
-        // brake pre-phase scratch
+        nd                : Int;       // resolved DoF count (1..4)
+        ax                : Int;       // DoF loop index
+        multiPath         : Bool;      // multi-axis / minimumDuration path
+        // brake pre-phase scratch (single-axis path)
         brakeNeeded   : Bool;
         brakeDuration : LReal;
-        pBrake        : LReal;
-        vBrake        : LReal;
-        aBrake        : LReal;
         // main solve seed state (post-brake)
         mainP0 : LReal;
         mainV0 : LReal;
@@ -49,6 +51,16 @@ FUNCTION_BLOCK "RuckigOtg"
         i            : DInt;
         // already-at-target degenerate guard
         atTarget : Bool;
+        // multi-axis scratch
+        blockResult  : Word;
+        timedResult  : Word;
+        syncOk       : Bool;
+        tSync        : LReal;
+        limitingAxis : Int;
+        // StateAtTime sampling scratch
+        op : LReal;
+        ov : LReal;
+        oa : LReal;
     END_VAR
 
     { S7_Language := "SCL" }
@@ -58,14 +70,16 @@ FUNCTION_BLOCK "RuckigOtg"
             // Title:      RuckigOtg
             // Function:   Online Trajectory Generator (PLCopen DA011).
             //             Called once per PLC cycle while enabled; emits a
-            //             jerk-limited single-axis trajectory toward an
-            //             ARBITRARY target state (pos/vel/acc), with
-            //             pass_to_input chaining (C2 retarget) and a brake
-            //             pre-phase when the seed state is out of limits.
+            //             jerk-limited MULTI-DoF trajectory toward arbitrary
+            //             target states (pos/vel/acc per axis), time-
+            //             synchronized so every axis reaches its target at the
+            //             same instant. pass_to_input chaining (C2 retarget).
             //             valid/busy/done/error + DA014 status.
-            // Solver:     v0.2 stack -> ComputeBrakeProfile (optional) then
-            //             ComputeProfile1Axis; sampled by StateAtTime which
-            //             evaluates the brake prefix first.
+            // Solver:     1-DoF (no minimumDuration) -> v0.3 step1 stack
+            //             (ComputeBrakeProfile + ComputeProfile1Axis).
+            //             Multi-DoF / minimumDuration -> v0.4: ComputeBlock1Axis
+            //             per axis -> Synchronize (t_sync) -> ComputeProfile1-
+            //             AxisTimed(tf = t_sync) per axis (step2 re-time).
             // Family:     Ruckig
             // Author:     Martin C
             //==========================================================
@@ -96,98 +110,80 @@ FUNCTION_BLOCK "RuckigOtg"
             END_IF;
         END_REGION
 
-        REGION First enable - seed chain from real axis state
+        REGION Resolve DoF count (clamp to 1..4)
+            #nd := DINT_TO_INT(#input.nDofs);
+            IF #nd < 1 THEN
+                #nd := 1;
+            END_IF;
+            IF #nd > 4 THEN
+                #nd := 4;
+            END_IF;
+            #multiPath := #nd > 1 OR #input.minimumDuration >= 0.0;
+        END_REGION
+
+        REGION First enable - seed chain from real axis state (all DoFs)
             IF #firstCall THEN
-                #chainPos := #input.currentPosition[0];
-                #chainVel := #input.currentVelocity[0];
-                #chainAcc := #input.currentAcceleration[0];
+                FOR #ax := 0 TO #nd - 1 DO
+                    #chainPos[#ax] := #input.currentPosition[#ax];
+                    #chainVel[#ax] := #input.currentVelocity[#ax];
+                    #chainAcc[#ax] := #input.currentAcceleration[#ax];
+                END_FOR;
             END_IF;
         END_REGION
 
-        REGION Change detection
-            #recomputeRequired := #firstCall OR #reset OR NOT #trajectory.isValid
-                OR ABS(#input.targetPosition[0] - #prevInput.targetPosition[0]) > "dbRuckigConst".EPS_POSITION
-                OR ABS(#input.targetVelocity[0] - #prevInput.targetVelocity[0]) > "dbRuckigConst".EPS_VELOCITY
-                OR ABS(#input.targetAcceleration[0] - #prevInput.targetAcceleration[0]) > "dbRuckigConst".EPS_DERIV
-                OR ABS(#input.maxVelocity[0] - #prevInput.maxVelocity[0]) > "dbRuckigConst".EPS_VELOCITY
-                OR ABS(#input.maxAcceleration[0] - #prevInput.maxAcceleration[0]) > "dbRuckigConst".EPS_DERIV
-                OR ABS(#input.maxJerk[0] - #prevInput.maxJerk[0]) > "dbRuckigConst".EPS_DERIV;
+        REGION Change detection (any DoF target/limit moved)
+            // firstCall/reset/invalid force a recompute WITHOUT reading prevInput
+            // (which is uninitialized on the first cycle). Only diff against
+            // prevInput once it holds a committed input.
+            #recomputeRequired := #firstCall OR #reset OR NOT #trajectory.isValid;
+            IF NOT #recomputeRequired THEN
+                FOR #ax := 0 TO #nd - 1 DO
+                    IF ABS(#input.targetPosition[#ax] - #prevInput.targetPosition[#ax]) > "dbRuckigConst".EPS_POSITION THEN
+                        #recomputeRequired := true;
+                    END_IF;
+                    IF ABS(#input.targetVelocity[#ax] - #prevInput.targetVelocity[#ax]) > "dbRuckigConst".EPS_VELOCITY THEN
+                        #recomputeRequired := true;
+                    END_IF;
+                    IF ABS(#input.targetAcceleration[#ax] - #prevInput.targetAcceleration[#ax]) > "dbRuckigConst".EPS_DERIV THEN
+                        #recomputeRequired := true;
+                    END_IF;
+                    IF ABS(#input.maxVelocity[#ax] - #prevInput.maxVelocity[#ax]) > "dbRuckigConst".EPS_VELOCITY THEN
+                        #recomputeRequired := true;
+                    END_IF;
+                    IF ABS(#input.maxAcceleration[#ax] - #prevInput.maxAcceleration[#ax]) > "dbRuckigConst".EPS_DERIV THEN
+                        #recomputeRequired := true;
+                    END_IF;
+                    IF ABS(#input.maxJerk[#ax] - #prevInput.maxJerk[#ax]) > "dbRuckigConst".EPS_DERIV THEN
+                        #recomputeRequired := true;
+                    END_IF;
+                END_FOR;
+                IF ABS(#input.minimumDuration - #prevInput.minimumDuration) > "dbRuckigConst".EPS_TIME THEN
+                    #recomputeRequired := true;
+                END_IF;
+            END_IF;
         END_REGION
 
         REGION Recompute trajectory
             IF #recomputeRequired THEN
-                // ---- Already-at-target degenerate case ---------------------
-                // If the seed state already equals the target state (within
-                // EPS), there is nothing to solve. The general solver divides
-                // by zero on the fully-degenerate p0=v0=a0=pT=vT=aT input, so
-                // short-circuit with a zero-duration profile (mirrors the v0.1
-                // trivial zero-displacement early-out).
-                #atTarget :=
-                    ABS(#input.targetPosition[0] - #chainPos) < "dbRuckigConst".EPS_POSITION
-                    AND ABS(#input.targetVelocity[0] - #chainVel) < "dbRuckigConst".EPS_VELOCITY
-                    AND ABS(#input.targetAcceleration[0] - #chainAcc) < "dbRuckigConst".EPS_DERIV;
-                IF #atTarget THEN
-                    FOR #i := 0 TO 6 DO
-                        #trajectory.profiles[0].t[#i] := 0.0;
-                        #trajectory.profiles[0].j[#i] := 0.0;
-                    END_FOR;
-                    FOR #i := 0 TO 7 DO
-                        #trajectory.profiles[0].a[#i] := #chainAcc;
-                        #trajectory.profiles[0].v[#i] := #chainVel;
-                        #trajectory.profiles[0].p[#i] := #chainPos;
-                    END_FOR;
-                    #trajectory.profiles[0].brake.t[0] := 0.0;
-                    #trajectory.profiles[0].brake.t[1] := 0.0;
-                    #trajectory.profiles[0].brake.j[0] := 0.0;
-                    #trajectory.profiles[0].brake.j[1] := 0.0;
-                    #trajectory.profiles[0].brake.a[0] := 0.0;
-                    #trajectory.profiles[0].brake.a[1] := 0.0;
-                    #trajectory.profiles[0].brake.a[2] := 0.0;
-                    #trajectory.profiles[0].brake.v[0] := 0.0;
-                    #trajectory.profiles[0].brake.v[1] := 0.0;
-                    #trajectory.profiles[0].brake.v[2] := 0.0;
-                    #trajectory.profiles[0].brake.p[0] := 0.0;
-                    #trajectory.profiles[0].brake.p[1] := 0.0;
-                    #trajectory.profiles[0].brake.p[2] := 0.0;
-                    #trajectory.duration := 0.0;
-                    #trajectory.independentMinDurations[0] := 0.0;
-                    #trajectory.currentTime := 0.0;
-                    #trajectory.isValid := true;
-                    #prevInput := #input;
-                    #firstCall := false;
-                END_IF;
-
-                // ---- Brake + solve (only when NOT already at target) -------
-                IF NOT #atTarget THEN
-                    // Brake pre-phase: the seed (chainVel/chainAcc) may be out
-                    // of limits (e.g. first enable while the axis moves faster
-                    // than maxVelocity). If so, prepend a brake that drives the
-                    // state back inside limits; the main solve then starts from
-                    // the POST-BRAKE state.
-                    #brakeNeeded := ABS(#chainVel) > #input.maxVelocity[0]
-                        OR ABS(#chainAcc) > #input.maxAcceleration[0];
-
-                    IF #brakeNeeded THEN
-                        // ComputeBrakeProfile fills profile.brake.* and returns
-                        // the brake duration; pBrake is the RELATIVE position
-                        // advance, vBrake/aBrake the absolute post-brake state.
-                        #brakeDuration := "ComputeBrakeProfile"(
-                            profile := #trajectory.profiles[0],
-                            v0 := #chainVel,
-                            a0 := #chainAcc,
-                            vMax := #input.maxVelocity[0],
-                            aMax := #input.maxAcceleration[0],
-                            jMax := #input.maxJerk[0],
-                            pBrake => #pBrake,
-                            vBrake => #vBrake,
-                            aBrake => #aBrake);
-                        #mainP0 := #chainPos + #pBrake;
-                        #mainV0 := #vBrake;
-                        #mainA0 := #aBrake;
-                    ELSE
-                        // No brake: explicitly zero profile.brake so the
-                        // StateAtTime brake-prefix check (brakeDur>0) sees no
-                        // brake. The solver does NOT touch profile.brake.
+                //========================================================
+                // SINGLE-AXIS PATH (1 DoF, no minimumDuration) -> v0.3 stack
+                //========================================================
+                IF NOT #multiPath THEN
+                    // ---- Already-at-target degenerate case -----------------
+                    #atTarget :=
+                        ABS(#input.targetPosition[0] - #chainPos[0]) < "dbRuckigConst".EPS_POSITION
+                        AND ABS(#input.targetVelocity[0] - #chainVel[0]) < "dbRuckigConst".EPS_VELOCITY
+                        AND ABS(#input.targetAcceleration[0] - #chainAcc[0]) < "dbRuckigConst".EPS_DERIV;
+                    IF #atTarget THEN
+                        FOR #i := 0 TO 6 DO
+                            #trajectory.profiles[0].t[#i] := 0.0;
+                            #trajectory.profiles[0].j[#i] := 0.0;
+                        END_FOR;
+                        FOR #i := 0 TO 7 DO
+                            #trajectory.profiles[0].a[#i] := #chainAcc[0];
+                            #trajectory.profiles[0].v[#i] := #chainVel[0];
+                            #trajectory.profiles[0].p[#i] := #chainPos[0];
+                        END_FOR;
                         #trajectory.profiles[0].brake.t[0] := 0.0;
                         #trajectory.profiles[0].brake.t[1] := 0.0;
                         #trajectory.profiles[0].brake.j[0] := 0.0;
@@ -201,32 +197,177 @@ FUNCTION_BLOCK "RuckigOtg"
                         #trajectory.profiles[0].brake.p[0] := 0.0;
                         #trajectory.profiles[0].brake.p[1] := 0.0;
                         #trajectory.profiles[0].brake.p[2] := 0.0;
-                        #brakeDuration := 0.0;
-                        #mainP0 := #chainPos;
-                        #mainV0 := #chainVel;
-                        #mainA0 := #chainAcc;
+                        #trajectory.duration := 0.0;
+                        #trajectory.independentMinDurations[0] := 0.0;
                     END_IF;
 
-                    // Main solve (fills t/j/a/v/p; seeds p[0]=mainP0).
-                    #profileResult := "ComputeProfile1Axis"(profile := #trajectory.profiles[0], p0 := #mainP0, v0 := #mainV0, a0 := #mainA0, pT := #input.targetPosition[0], vT := #input.targetVelocity[0], aT := #input.targetAcceleration[0], vMax := #input.maxVelocity[0], aMax := #input.maxAcceleration[0], jMax := #input.maxJerk[0]);
-                    IF #profileResult <> "dbRuckigConst".RESULT_WORKING AND #profileResult <> "dbRuckigConst".RESULT_FINISHED THEN
+                    // ---- Brake + solve (only when NOT already at target) ---
+                    IF NOT #atTarget THEN
+                        #brakeNeeded := ABS(#chainVel[0]) > #input.maxVelocity[0]
+                            OR ABS(#chainAcc[0]) > #input.maxAcceleration[0];
+
+                        IF #brakeNeeded THEN
+                            // NOTE: the transpiler drops "=>" VAR_OUTPUT bindings
+                            // when a function's return value is consumed, so we do
+                            // NOT bind pBrake/vBrake/aBrake here. ComputeBrakeProfile
+                            // also writes the post-brake state into profile.brake
+                            // (p[2]=position advance, v[2]/a[2]=post-brake v/a) via
+                            // the reliable VAR_IN_OUT profile; read it from there.
+                            #brakeDuration := "ComputeBrakeProfile"(
+                                profile := #trajectory.profiles[0],
+                                v0 := #chainVel[0],
+                                a0 := #chainAcc[0],
+                                vMax := #input.maxVelocity[0],
+                                aMax := #input.maxAcceleration[0],
+                                jMax := #input.maxJerk[0]);
+                            #mainP0 := #chainPos[0] + #trajectory.profiles[0].brake.p[2];
+                            #mainV0 := #trajectory.profiles[0].brake.v[2];
+                            #mainA0 := #trajectory.profiles[0].brake.a[2];
+                        ELSE
+                            #trajectory.profiles[0].brake.t[0] := 0.0;
+                            #trajectory.profiles[0].brake.t[1] := 0.0;
+                            #trajectory.profiles[0].brake.j[0] := 0.0;
+                            #trajectory.profiles[0].brake.j[1] := 0.0;
+                            #trajectory.profiles[0].brake.a[0] := 0.0;
+                            #trajectory.profiles[0].brake.a[1] := 0.0;
+                            #trajectory.profiles[0].brake.a[2] := 0.0;
+                            #trajectory.profiles[0].brake.v[0] := 0.0;
+                            #trajectory.profiles[0].brake.v[1] := 0.0;
+                            #trajectory.profiles[0].brake.v[2] := 0.0;
+                            #trajectory.profiles[0].brake.p[0] := 0.0;
+                            #trajectory.profiles[0].brake.p[1] := 0.0;
+                            #trajectory.profiles[0].brake.p[2] := 0.0;
+                            #brakeDuration := 0.0;
+                            #mainP0 := #chainPos[0];
+                            #mainV0 := #chainVel[0];
+                            #mainA0 := #chainAcc[0];
+                        END_IF;
+
+                        #profileResult := "ComputeProfile1Axis"(profile := #trajectory.profiles[0], p0 := #mainP0, v0 := #mainV0, a0 := #mainA0, pT := #input.targetPosition[0], vT := #input.targetVelocity[0], aT := #input.targetAcceleration[0], vMax := #input.maxVelocity[0], aMax := #input.maxAcceleration[0], jMax := #input.maxJerk[0]);
+                        IF #profileResult <> "dbRuckigConst".RESULT_WORKING AND #profileResult <> "dbRuckigConst".RESULT_FINISHED THEN
+                            #valid := false;
+                            #busy := false;
+                            #done := false;
+                            #error := true;
+                            #status := "dbRuckigConst".RESULT_ERR_TRAJ;
+                            #trajectory.isValid := false;
+                            RETURN;
+                        END_IF;
+
+                        #mainDuration := 0.0;
+                        FOR #i := 0 TO 6 DO
+                            #mainDuration := #mainDuration + #trajectory.profiles[0].t[#i];
+                        END_FOR;
+                        #trajectory.duration := #brakeDuration + #mainDuration;
+                        #trajectory.independentMinDurations[0] := #trajectory.duration;
+                    END_IF;
+                END_IF;
+
+                //========================================================
+                // MULTI-AXIS PATH (>1 DoF or minimumDuration set) -> v0.4
+                //========================================================
+                IF #multiPath THEN
+                    // ---- Phase 1: per-DoF reachable-duration Block ---------
+                    FOR #ax := 0 TO #nd - 1 DO
+                        #blockResult := "ComputeBlock1Axis"(
+                            block := #blockSet.items[#ax],
+                            profile := #trajectory.profiles[#ax],
+                            p0 := #chainPos[#ax], v0 := #chainVel[#ax], a0 := #chainAcc[#ax],
+                            pT := #input.targetPosition[#ax],
+                            vT := #input.targetVelocity[#ax],
+                            aT := #input.targetAcceleration[#ax],
+                            vMax := #input.maxVelocity[#ax],
+                            aMax := #input.maxAcceleration[#ax],
+                            jMax := #input.maxJerk[#ax]);
+                        IF #blockResult <> "dbRuckigConst".RESULT_WORKING THEN
+                            #valid := false;
+                            #busy := false;
+                            #done := false;
+                            #error := true;
+                            #status := "dbRuckigConst".RESULT_ERR_TRAJ;
+                            #trajectory.isValid := false;
+                            RETURN;
+                        END_IF;
+                    END_FOR;
+
+                    // ---- Phase 2: time synchronization ---------------------
+                    "Synchronize"(
+                        blockSet := #blockSet,
+                        nDofs := #nd,
+                        minimumDuration := #input.minimumDuration,
+                        resolved => #syncOk,
+                        tSync => #tSync,
+                        limitingAxis => #limitingAxis);
+                    IF NOT #syncOk THEN
                         #valid := false;
                         #busy := false;
                         #done := false;
                         #error := true;
-                        #status := "dbRuckigConst".RESULT_ERR_TRAJ;
+                        #status := "dbRuckigConst".RESULT_ERR_SYNC;
                         #trajectory.isValid := false;
                         RETURN;
                     END_IF;
 
-                    // Duration = brake + sum of main phases.
-                    #mainDuration := 0.0;
-                    FOR #i := 0 TO 6 DO
-                        #mainDuration := #mainDuration + #trajectory.profiles[0].t[#i];
+                    // ---- Phase 3: re-time each axis to t_sync (step2) ------
+                    FOR #ax := 0 TO #nd - 1 DO
+                        // no brake pre-phase in the multi-axis path
+                        #trajectory.profiles[#ax].brake.t[0] := 0.0;
+                        #trajectory.profiles[#ax].brake.t[1] := 0.0;
+                        #trajectory.profiles[#ax].brake.j[0] := 0.0;
+                        #trajectory.profiles[#ax].brake.j[1] := 0.0;
+                        #trajectory.profiles[#ax].brake.a[0] := 0.0;
+                        #trajectory.profiles[#ax].brake.a[1] := 0.0;
+                        #trajectory.profiles[#ax].brake.a[2] := 0.0;
+                        #trajectory.profiles[#ax].brake.v[0] := 0.0;
+                        #trajectory.profiles[#ax].brake.v[1] := 0.0;
+                        #trajectory.profiles[#ax].brake.v[2] := 0.0;
+                        #trajectory.profiles[#ax].brake.p[0] := 0.0;
+                        #trajectory.profiles[#ax].brake.p[1] := 0.0;
+                        #trajectory.profiles[#ax].brake.p[2] := 0.0;
+
+                        // axis already on a STATIC target -> hold flat for t_sync
+                        #atTarget :=
+                            ABS(#input.targetPosition[#ax] - #chainPos[#ax]) < "dbRuckigConst".EPS_POSITION
+                            AND ABS(#input.targetVelocity[#ax] - #chainVel[#ax]) < "dbRuckigConst".EPS_VELOCITY
+                            AND ABS(#input.targetAcceleration[#ax] - #chainAcc[#ax]) < "dbRuckigConst".EPS_DERIV
+                            AND ABS(#chainVel[#ax]) < "dbRuckigConst".EPS_VELOCITY
+                            AND ABS(#chainAcc[#ax]) < "dbRuckigConst".EPS_DERIV;
+                        IF #atTarget THEN
+                            FOR #i := 0 TO 6 DO
+                                #trajectory.profiles[#ax].t[#i] := 0.0;
+                                #trajectory.profiles[#ax].j[#i] := 0.0;
+                            END_FOR;
+                            FOR #i := 0 TO 7 DO
+                                #trajectory.profiles[#ax].a[#i] := #chainAcc[#ax];
+                                #trajectory.profiles[#ax].v[#i] := #chainVel[#ax];
+                                #trajectory.profiles[#ax].p[#i] := #chainPos[#ax];
+                            END_FOR;
+                        ELSE
+                            #timedResult := "ComputeProfile1AxisTimed"(
+                                profile := #trajectory.profiles[#ax],
+                                p0 := #chainPos[#ax], v0 := #chainVel[#ax], a0 := #chainAcc[#ax],
+                                pT := #input.targetPosition[#ax],
+                                vT := #input.targetVelocity[#ax],
+                                aT := #input.targetAcceleration[#ax],
+                                vMax := #input.maxVelocity[#ax],
+                                aMax := #input.maxAcceleration[#ax],
+                                jMax := #input.maxJerk[#ax],
+                                tf := #tSync);
+                            IF #timedResult <> "dbRuckigConst".RESULT_WORKING AND #timedResult <> "dbRuckigConst".RESULT_FINISHED THEN
+                                #valid := false;
+                                #busy := false;
+                                #done := false;
+                                #error := true;
+                                #status := "dbRuckigConst".RESULT_ERR_TRAJ;
+                                #trajectory.isValid := false;
+                                RETURN;
+                            END_IF;
+                        END_IF;
+                        #trajectory.independentMinDurations[#ax] := #blockSet.items[#ax].tMin;
                     END_FOR;
-                    #trajectory.duration := #brakeDuration + #mainDuration;
-                    #trajectory.independentMinDurations[0] := #trajectory.duration;
+                    #trajectory.duration := #tSync;
                 END_IF;
+
                 #trajectory.currentTime := 0.0;
                 #trajectory.isValid := true;
                 #prevInput := #input;
@@ -234,9 +375,14 @@ FUNCTION_BLOCK "RuckigOtg"
             END_IF;
         END_REGION
 
-        REGION Advance and evaluate
+        REGION Advance and evaluate (sample every DoF)
             "AdvanceTime"(trajectory := #trajectory, dt := #cycleTime);
-            "StateAtTime"(profile := #trajectory.profiles[0], t := #trajectory.currentTime, p => #output.newPosition[0], v => #output.newVelocity[0], a => #output.newAcceleration[0]);
+            FOR #ax := 0 TO #nd - 1 DO
+                "StateAtTime"(profile := #trajectory.profiles[#ax], t := #trajectory.currentTime, p => #op, v => #ov, a => #oa);
+                #output.newPosition[#ax] := #op;
+                #output.newVelocity[#ax] := #ov;
+                #output.newAcceleration[#ax] := #oa;
+            END_FOR;
             #output.trajectoryDuration := #trajectory.duration;
             #output.currentTime := #trajectory.currentTime;
         END_REGION
@@ -259,12 +405,12 @@ FUNCTION_BLOCK "RuckigOtg"
             END_IF;
         END_REGION
 
-        REGION Chain update - pass_to_input (end of cycle)
-            // Next recompute starts from the LAST COMMANDED setpoint -> C2
-            // continuity on retarget (no jump).
-            #chainPos := #output.newPosition[0];
-            #chainVel := #output.newVelocity[0];
-            #chainAcc := #output.newAcceleration[0];
+        REGION Chain update - pass_to_input (end of cycle, all DoFs)
+            FOR #ax := 0 TO #nd - 1 DO
+                #chainPos[#ax] := #output.newPosition[#ax];
+                #chainVel[#ax] := #output.newVelocity[#ax];
+                #chainAcc[#ax] := #output.newAcceleration[#ax];
+            END_FOR;
         END_REGION
     END_NETWORK
 END_FUNCTION_BLOCK

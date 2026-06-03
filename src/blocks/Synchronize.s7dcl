@@ -5,7 +5,7 @@
     S7_Optimized := "TRUE";
     S7_Version := "0.4.0"
 }
-FUNCTION "Synchronize" : Bool
+FUNCTION "Synchronize" : Void
     VAR_IN_OUT
         blockSet : _.typeBlockSet;
     END_VAR
@@ -14,7 +14,8 @@ FUNCTION "Synchronize" : Bool
         minimumDuration : LReal;   // sentinel < 0 = none
     END_VAR
     VAR_OUTPUT
-        tSync       : LReal;
+        resolved     : Bool;   // TRUE if a t_sync was found
+        tSync        : LReal;
         limitingAxis : Int;
     END_VAR
     VAR_TEMP
@@ -27,7 +28,6 @@ FUNCTION "Synchronize" : Bool
         tmp        : LReal;
         c          : LReal;
         blocked    : Bool;
-        resolved   : Bool;
     END_VAR
 
     { S7_Language := "SCL" }
@@ -41,7 +41,9 @@ FUNCTION "Synchronize" : Bool
             //             any DoF, and the limiting (slowest) DoF. Port of
             //             Ruckig TargetCalculator::synchronize (Time mode,
             //             calculator_target.hpp l.123-203).
-            // Returns:    TRUE if a t_sync was found, FALSE otherwise.
+            // Returns:    resolved = TRUE if a t_sync was found (VAR_OUTPUT, not
+            //             a return value: the plc-code transpiler drops "=>"
+            //             outputs when a function's return value is consumed).
             // Family:     Ruckig
             // Author:     Martin C
             //==========================================================
@@ -117,7 +119,6 @@ FUNCTION "Synchronize" : Bool
                     END_IF;
                 END_IF;
             END_FOR;
-            #Synchronize := #resolved;
         END_REGION
     END_NETWORK
 END_FUNCTION

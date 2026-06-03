@@ -19,7 +19,7 @@ def _run(harness, blocks, n_dofs, minimum_duration=-1.0):
     harness.reset()
     harness.set_inputs(blockSet={"items": padded}, nDofs=n_dofs, minimumDuration=minimum_duration)
     harness.execute()
-    return (harness.get_output("Synchronize"),
+    return (harness.get_output("resolved"),
             harness.get_output("tSync"),
             harness.get_output("limitingAxis"))
 
