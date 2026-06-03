@@ -42,6 +42,8 @@ def run_scl(
     cycle_time: float,
     minimum_duration: float = -1.0,
     synchronization: int = 2,
+    per_dof_synchronization: list | None = None,
+    duration_discretization: int = 0,
     max_cycles: int = 2000,
 ) -> TrajectoryTrace:
     """Run the SCL RuckigOtg FB cycle by cycle via the plc-code harness."""
@@ -63,8 +65,8 @@ def run_scl(
         "minimumDuration": minimum_duration,
         "controlInterface": 0,
         "synchronization": synchronization,
-        "perDofSynchronization": [-1, -1, -1, -1],
-        "durationDiscretization": 0,
+        "perDofSynchronization": (list(per_dof_synchronization) + [-1] * 4)[:4] if per_dof_synchronization is not None else [-1, -1, -1, -1],
+        "durationDiscretization": duration_discretization,
     }
 
     trace = TrajectoryTrace()
