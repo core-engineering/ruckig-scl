@@ -14,10 +14,17 @@ def _blk(tMin, aValid=False, aLeft=0.0, aRight=0.0,
             "bValid": bValid, "bLeft": bLeft, "bRight": bRight}
 
 
-def _run(harness, blocks, n_dofs, minimum_duration=-1.0):
+def _run(harness, blocks, n_dofs, minimum_duration=-1.0,
+         participates=None, discrete=False, cycle_time=0.010):
     padded = list(blocks) + [_blk(0.0)] * (4 - len(blocks))
+    if participates is None:
+        participates = [True] * 4
+    else:
+        participates = list(participates) + [False] * (4 - len(participates))
     harness.reset()
-    harness.set_inputs(blockSet={"items": padded}, nDofs=n_dofs, minimumDuration=minimum_duration)
+    harness.set_inputs(blockSet={"items": padded}, nDofs=n_dofs,
+                       minimumDuration=minimum_duration,
+                       participates=participates, discrete=discrete, cycleTime=cycle_time)
     harness.execute()
     return (harness.get_output("resolved"),
             harness.get_output("tSync"),
@@ -59,3 +66,21 @@ def test_minimum_duration_in_blocked_interval(harness):
                                     _blk(0.8)], 2, minimum_duration=2.5)
     assert ok is True
     assert tsync == pytest.approx(3.0)
+
+
+def test_participation_mask_excludes_no_axis(harness):
+    # DoF0 t_min=3.0 but NOT participating (No); DoF1 t_min=1.0 participating.
+    # t_sync must ignore DoF0 -> 1.0, limiting = DoF1.
+    ok, tsync, lim = _run(harness, [_blk(3.0), _blk(1.0)], 2,
+                          participates=[False, True])
+    assert ok is True
+    assert tsync == pytest.approx(1.0)
+    assert lim == 1
+
+
+def test_discrete_rounds_up_to_cycle_grid(harness):
+    # t_sync = max(tMin) = 2.0; discrete dt=0.3 -> ceil(2.0/0.3)*0.3 = 2.1
+    ok, tsync, lim = _run(harness, [_blk(2.0), _blk(1.0)], 2,
+                          discrete=True, cycle_time=0.3)
+    assert ok is True
+    assert tsync == pytest.approx(2.1, abs=1e-9)

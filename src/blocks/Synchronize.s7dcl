@@ -3,7 +3,7 @@
     S7_EditorMode := "SCL";
     S7_Family := "Ruckig";
     S7_Optimized := "TRUE";
-    S7_Version := "0.4.0"
+    S7_Version := "0.6.0"
 }
 FUNCTION "Synchronize" : Void
     VAR_IN_OUT
@@ -12,22 +12,32 @@ FUNCTION "Synchronize" : Void
     VAR_INPUT
         nDofs           : Int;
         minimumDuration : LReal;   // sentinel < 0 = none
+        participates    : Array[0..3] of Bool;   // axes excluded from t_sync (No)
+        discrete        : Bool;    // round t_sync up to a cycleTime grid
+        cycleTime       : LReal;
     END_VAR
     VAR_OUTPUT
-        resolved     : Bool;   // TRUE if a t_sync was found
+        resolved     : Bool;
         tSync        : LReal;
         limitingAxis : Int;
     END_VAR
     VAR_TEMP
-        tStart     : LReal;
-        cand       : Array[0..12] of LReal;
-        nc         : Int;
-        d          : Int;
-        i          : Int;
-        k          : Int;
-        tmp        : LReal;
-        c          : LReal;
-        blocked    : Bool;
+        tStart   : LReal;
+        cand     : Array[0..12] of LReal;
+        nc       : Int;
+        d        : Int;
+        i        : Int;
+        k        : Int;
+        tmp      : LReal;
+        c        : LReal;
+        blocked  : Bool;
+        anyPart  : Bool;
+        q        : LReal;
+        kFloor   : DInt;
+        tFloor   : LReal;
+        rEdge    : LReal;
+        g        : Int;
+        stepDone : Bool;
     END_VAR
 
     { S7_Language := "SCL" }
@@ -35,53 +45,65 @@ FUNCTION "Synchronize" : Void
         REGION Block header
             //==========================================================
             // Title:      Synchronize
-            // Function:   Time synchronization across DoFs. Given each DoF's
-            //             reachable-duration Block, find t_sync = smallest
-            //             common duration >= max(tMin) that is not blocked for
-            //             any DoF, and the limiting (slowest) DoF. Port of
-            //             Ruckig TargetCalculator::synchronize (Time mode,
-            //             calculator_target.hpp l.123-203).
-            // Returns:    resolved = TRUE if a t_sync was found (VAR_OUTPUT, not
-            //             a return value: the plc-code transpiler drops "=>"
-            //             outputs when a function's return value is consumed).
+            // Function:   Time synchronization across the PARTICIPATING DoFs
+            //             (participates[d]=false excludes a No axis). Finds
+            //             t_sync = smallest common non-blocked duration >=
+            //             max(tMin of participating) + the limiting DoF. When
+            //             discrete, rounds t_sync up to a cycleTime grid and
+            //             jumps any blocked interval the rounding lands in.
+            //             Port of Ruckig TargetCalculator::synchronize.
+            // Returns:    resolved = TRUE if a t_sync was found (VAR_OUTPUT).
             // Family:     Ruckig
             // Author:     Martin C
             //==========================================================
         END_REGION
 
-        REGION Lower bound: max(tMin) and minimumDuration, limiting DoF
+        REGION Lower bound over participating DoFs + limiting DoF
             #tStart := 0.0;
             IF #minimumDuration >= 0.0 THEN
                 #tStart := #minimumDuration;
             END_IF;
-            #limitingAxis := 0;
+            #anyPart := false;
             FOR #d := 0 TO #nDofs - 1 DO
-                IF #blockSet.items[#d].tMin > #tStart THEN
-                    #tStart := #blockSet.items[#d].tMin;
+                IF #participates[#d] THEN
+                    #anyPart := true;
+                    IF #blockSet.items[#d].tMin > #tStart THEN
+                        #tStart := #blockSet.items[#d].tMin;
+                    END_IF;
                 END_IF;
             END_FOR;
-            // limiting DoF = the slowest (largest tMin)
+            #limitingAxis := 0;
             #tmp := -1.0;
             FOR #d := 0 TO #nDofs - 1 DO
-                IF #blockSet.items[#d].tMin > #tmp THEN
+                IF #participates[#d] AND #blockSet.items[#d].tMin > #tmp THEN
                     #tmp := #blockSet.items[#d].tMin;
                     #limitingAxis := #d;
                 END_IF;
             END_FOR;
         END_REGION
 
-        REGION Collect candidate sync times (>= tStart)
+        REGION No participating DoF -> trivial resolve
+            IF NOT #anyPart THEN
+                #tSync := #tStart;
+                #resolved := true;
+                RETURN;
+            END_IF;
+        END_REGION
+
+        REGION Collect candidate sync times (>= tStart), participating only
             #nc := 0;
             #cand[#nc] := #tStart;
             #nc := #nc + 1;
             FOR #d := 0 TO #nDofs - 1 DO
-                IF #blockSet.items[#d].aValid AND #blockSet.items[#d].aRight > #tStart THEN
-                    #cand[#nc] := #blockSet.items[#d].aRight;
-                    #nc := #nc + 1;
-                END_IF;
-                IF #blockSet.items[#d].bValid AND #blockSet.items[#d].bRight > #tStart THEN
-                    #cand[#nc] := #blockSet.items[#d].bRight;
-                    #nc := #nc + 1;
+                IF #participates[#d] THEN
+                    IF #blockSet.items[#d].aValid AND #blockSet.items[#d].aRight > #tStart THEN
+                        #cand[#nc] := #blockSet.items[#d].aRight;
+                        #nc := #nc + 1;
+                    END_IF;
+                    IF #blockSet.items[#d].bValid AND #blockSet.items[#d].bRight > #tStart THEN
+                        #cand[#nc] := #blockSet.items[#d].bRight;
+                        #nc := #nc + 1;
+                    END_IF;
                 END_IF;
             END_FOR;
         END_REGION
@@ -98,7 +120,7 @@ FUNCTION "Synchronize" : Void
             END_FOR;
         END_REGION
 
-        REGION Pick smallest non-blocked candidate
+        REGION Pick smallest non-blocked candidate (participating only)
             #resolved := false;
             #tSync := #tStart;
             FOR #i := 0 TO #nc - 1 DO
@@ -106,11 +128,13 @@ FUNCTION "Synchronize" : Void
                     #c := #cand[#i];
                     #blocked := false;
                     FOR #d := 0 TO #nDofs - 1 DO
-                        IF #blockSet.items[#d].aValid AND #blockSet.items[#d].aLeft < #c AND #c < #blockSet.items[#d].aRight THEN
-                            #blocked := true;
-                        END_IF;
-                        IF #blockSet.items[#d].bValid AND #blockSet.items[#d].bLeft < #c AND #c < #blockSet.items[#d].bRight THEN
-                            #blocked := true;
+                        IF #participates[#d] THEN
+                            IF #blockSet.items[#d].aValid AND #blockSet.items[#d].aLeft < #c AND #c < #blockSet.items[#d].aRight THEN
+                                #blocked := true;
+                            END_IF;
+                            IF #blockSet.items[#d].bValid AND #blockSet.items[#d].bLeft < #c AND #c < #blockSet.items[#d].bRight THEN
+                                #blocked := true;
+                            END_IF;
                         END_IF;
                     END_FOR;
                     IF NOT #blocked THEN
@@ -119,6 +143,54 @@ FUNCTION "Synchronize" : Void
                     END_IF;
                 END_IF;
             END_FOR;
+        END_REGION
+
+        REGION Discrete: round t_sync up to the cycleTime grid, jump blocked intervals
+            IF #discrete AND #resolved AND #cycleTime > 0.0 THEN
+                #q := #tSync / #cycleTime;
+                #kFloor := LREAL_TO_DINT(#q);
+                #tFloor := DINT_TO_LREAL(#kFloor) * #cycleTime;
+                IF #tFloor < #tSync - 2.0E-12 THEN
+                    #tSync := #tFloor + #cycleTime;
+                ELSE
+                    #tSync := #tFloor;
+                END_IF;
+                #stepDone := false;
+                FOR #g := 0 TO 8 DO
+                    IF NOT #stepDone THEN
+                        #blocked := false;
+                        #rEdge := #tSync;
+                        FOR #d := 0 TO #nDofs - 1 DO
+                            IF #participates[#d] THEN
+                                IF #blockSet.items[#d].aValid AND #blockSet.items[#d].aLeft < #tSync AND #tSync < #blockSet.items[#d].aRight THEN
+                                    #blocked := true;
+                                    IF #blockSet.items[#d].aRight > #rEdge THEN
+                                        #rEdge := #blockSet.items[#d].aRight;
+                                    END_IF;
+                                END_IF;
+                                IF #blockSet.items[#d].bValid AND #blockSet.items[#d].bLeft < #tSync AND #tSync < #blockSet.items[#d].bRight THEN
+                                    #blocked := true;
+                                    IF #blockSet.items[#d].bRight > #rEdge THEN
+                                        #rEdge := #blockSet.items[#d].bRight;
+                                    END_IF;
+                                END_IF;
+                            END_IF;
+                        END_FOR;
+                        IF #blocked THEN
+                            #q := #rEdge / #cycleTime;
+                            #kFloor := LREAL_TO_DINT(#q);
+                            #tFloor := DINT_TO_LREAL(#kFloor) * #cycleTime;
+                            IF #tFloor < #rEdge - 2.0E-12 THEN
+                                #tSync := #tFloor + #cycleTime;
+                            ELSE
+                                #tSync := #tFloor;
+                            END_IF;
+                        ELSE
+                            #stepDone := true;
+                        END_IF;
+                    END_IF;
+                END_FOR;
+            END_IF;
         END_REGION
     END_NETWORK
 END_FUNCTION

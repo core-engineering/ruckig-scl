@@ -65,6 +65,7 @@ FUNCTION_BLOCK "RuckigOtg"
         op : LReal;
         ov : LReal;
         oa : LReal;
+        allTrue : Array[0..3] of Bool;
     END_VAR
 
     { S7_Language := "SCL" }
@@ -398,10 +399,17 @@ FUNCTION_BLOCK "RuckigOtg"
                     END_FOR;
 
                     // ---- Phase 2: time synchronization ---------------------
+                    #allTrue[0] := true;
+                    #allTrue[1] := true;
+                    #allTrue[2] := true;
+                    #allTrue[3] := true;
                     "Synchronize"(
                         blockSet := #blockSet,
                         nDofs := #nd,
                         minimumDuration := #input.minimumDuration,
+                        participates := #allTrue,
+                        discrete := false,
+                        cycleTime := #cycleTime,
                         resolved => #syncOk,
                         tSync => #tSync,
                         limitingAxis => #limitingAxis);
