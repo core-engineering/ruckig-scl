@@ -157,6 +157,24 @@ def test_acc0_vel(harness, v0, a0, vT, aT, pd):
     _assert_timed_parity(harness, *args, _t_min(*args) * 1.15)
 
 
+# T7: VEL (UDDU) — reaches the velocity plateau, neither accel limit
+# (t[1]=t[5]=0). Structure (1,0,1,1,1,0,1), jerk [+,0,-,0,-,0,+]. The general
+# case is a degree-5 polynomial solved by sign-scan + ShrinkInterval + Newton.
+# (v0,a0,vT,aT,pd,k) with p0=0; tf=t_min*k. UDUD VEL cases come with the UDUD pass.
+_VEL_UDDU_CASES = [
+    (0.0, -3.0, 0.0, 2.0, 0.3, 1.3),    # was a masked mismatch before time_vel
+    (-1.5, 0.0, -1.5, 0.0, -2.0, 1.1),
+    (-1.5, 2.0, -1.5, 0.0, -2.0, 1.3),
+    (-1.5, -3.0, -1.5, 2.0, -2.0, 1.1),
+]
+
+
+@pytest.mark.parametrize("v0,a0,vT,aT,pd,k", _VEL_UDDU_CASES)
+def test_vel_uddu(harness, v0, a0, vT, aT, pd, k):
+    args = (0.0, v0, a0, pd, vT, aT)
+    _assert_timed_parity(harness, *args, _t_min(*args) * k)
+
+
 def test_oracle_timed_reaches_target():
     """The stretched trajectory still reaches the final state at tf."""
     args = (0.0, 0.5, 0.0, 1.0, 0.5, 0.0)
