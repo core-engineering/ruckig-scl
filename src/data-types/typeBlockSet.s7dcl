@@ -1,0 +1,8 @@
+TYPE
+    typeBlockSet : STRUCT
+        // Per-DoF reachable-duration blocks (one per axis, up to DOF_MAX = 4).
+        // Wrapper UDT: an Array of UDT must live inside a STRUCT to be passable
+        // as an FC parameter (like typeTrajectory.profiles).
+        items : Array[0..3] of typeBlock;
+    END_STRUCT;
+END_TYPE
