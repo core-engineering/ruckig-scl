@@ -107,7 +107,8 @@ Data is carried by UDTs (`typeRuckigInput`, `typeRuckigOutput`, `typeProfile`,
 design specs under [docs/superpowers/specs/](docs/superpowers/specs/)
 (`2026-05-28-…-port-design.md` for v0.1, `2026-05-30-…-v0.2-design.md` for v0.2,
 `2026-06-02-…-v0.3-design.md` for v0.3, `2026-06-03-…-v0.4-design.md` for v0.4,
-`2026-06-03-ruckig-scl-v0.5-design.md` for v0.5).
+`2026-06-03-ruckig-scl-v0.5-design.md` for v0.5,
+`2026-06-03-ruckig-scl-v0.6-design.md` for v0.6).
 
 ## Target platform
 
