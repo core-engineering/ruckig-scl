@@ -59,9 +59,10 @@ Two additional multi-axis synchronization modes on top of v0.4's Time sync.
   default; preserves v0.4 behaviour for callers that do not set it).
 
 ### Parity
-- 3 new scenarios (`v05_01..03`): No (independent), Phase collinear (exact),
-  Phase non-collinear (Time fallback) - floating-point-floor match. 30 parity
-  scenarios total. 192 tests pass.
+- 4 new scenarios (`v05_01..03` + `v05_04` no-stationary-axis regression): No
+  (independent), Phase collinear (exact), Phase non-collinear (Time fallback),
+  and a zero-displacement axis. Floating-point-floor match. 31 parity
+  scenarios total. 195 tests pass.
 
 ### Known limitations
 - `TimeIfNecessary`, `DurationDiscretization.Discrete`, and
