@@ -56,3 +56,12 @@ def test_nonzero_af(harness):
     assert _sum_t(prof) == pytest.approx(1.5, abs=1e-9)
     assert prof.v[7] == pytest.approx(1.0, abs=1e-6)
     assert prof.a[7] == pytest.approx(1.0, abs=1e-6)
+
+
+def test_negative_vd_retime(harness):
+    # v0=2 -> vf=0 (vd<0); re-time to tf=2.0. Reversed direction must solve.
+    res, prof = _run(harness, v0=2.0, a0=0.0, vf=0.0, af=0.0, aMax=10.0, jMax=4.0, tf=2.0)
+    assert res == RESULT_WORKING
+    assert _sum_t(prof) == pytest.approx(2.0, abs=1e-9)
+    assert prof.v[7] == pytest.approx(0.0, abs=1e-6)
+    assert prof.a[7] == pytest.approx(0.0, abs=1e-6)

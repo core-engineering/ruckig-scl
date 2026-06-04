@@ -28,13 +28,13 @@ FUNCTION "SolveVelTimedDir" : Void
         h1    : LReal;
         radic : LReal;
         denom : LReal;
+        denU  : LReal;
         sj2   : LReal;
         jf    : LReal;
         t0    : LReal;
         t1    : LReal;
         t2    : LReal;
         t6    : LReal;
-        i     : DInt;
     END_VAR
     VAR CONSTANT
         EPS : LReal := 1.0E-12;
@@ -102,9 +102,9 @@ FUNCTION "SolveVelTimedDir" : Void
         REGION time_acc0 - UU solution
             #denom := -#ad + #sjMax * #tf;
             IF ABS(#denom) > #EPS THEN
-                #t0 := -#ad * #ad / (2.0 * #sjMax * #denom) + (#vd - #a0 * #tf) / #denom;
+                #denU := 2.0 * #sjMax * #denom;
+                #t0 := -#ad * #ad / #denU + (#vd - #a0 * #tf) / #denom;
                 #t1 := -#ad / #sjMax + #tf;
-                #t2 := 0.0;
                 #t6 := #tf - (#t0 + #t1);
                 #profile.t[0] := #t0;
                 #profile.t[1] := #t1;
