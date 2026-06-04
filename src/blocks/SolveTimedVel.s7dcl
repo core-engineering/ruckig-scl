@@ -79,6 +79,12 @@ FUNCTION "SolveTimedVel" : Void
         orig   : LReal;
         derivN : LReal;
         ok     : Bool;
+        // all-zero cubic branch
+        cubB     : LReal;
+        cubD     : LReal;
+        cubRoots : Array[0..3] of LReal;
+        cubCount : Int;
+        cr       : Int;
     END_VAR
     VAR CONSTANT
         N_SEG : Int := 128;
@@ -130,6 +136,52 @@ FUNCTION "SolveTimedVel" : Void
             #den_12jj := 12.0 * #jMax_jMax;
             #den_2jj := 2.0 * #jMax_jMax;
             #den_6jj := 6.0 * #jMax_jMax;
+        END_REGION
+
+        REGION All-zero boundary cubic (UDDU VEL exact)
+            // Ruckig time_vel l.264-296: when v0,a0,vf,af all ~0, the velocity-
+            // plateau ramp time solves an exact cubic [1, -tf/2, 0, pd/(2*jMax)].
+            IF ABS(#v0) < 1.0E-12 AND ABS(#a0) < 1.0E-12 AND ABS(#vT) < 1.0E-12 AND ABS(#aT) < 1.0E-12 THEN
+                #cubB := -#tf / 2.0;
+                #cubD := #pd / (2.0 * #sjMax);
+                "SolveCubic"(a := 1.0, b := #cubB, c := 0.0, d := #cubD,
+                    roots => #cubRoots, count => #cubCount);
+                FOR #cr := 0 TO #cubCount - 1 DO
+                    IF NOT #found THEN
+                        #t := #cubRoots[#cr];
+                        IF #t <= #tf / 4.0 THEN
+                            IF #t > 1.0E-12 THEN
+                                #orig := -#pd + #sjMax * #t * #t * (#tf - 2.0 * #t);
+                                #derivN := 2.0 * #sjMax * #t * (#tf - 3.0 * #t);
+                                IF ABS(#derivN) > 1.0E-12 THEN
+                                    #t := #t - #orig / #derivN;
+                                END_IF;
+                            END_IF;
+                            #profile.j[0] := #sjMax;
+                            #profile.j[1] := 0.0;
+                            #profile.j[2] := -#sjMax;
+                            #profile.j[3] := 0.0;
+                            #profile.j[4] := -#sjMax;
+                            #profile.j[5] := 0.0;
+                            #profile.j[6] := #sjMax;
+                            #profile.t[0] := #t;
+                            #profile.t[1] := 0.0;
+                            #profile.t[2] := #t;
+                            #profile.t[3] := #tf - 4.0 * #t;
+                            #profile.t[4] := #t;
+                            #profile.t[5] := 0.0;
+                            #profile.t[6] := #t;
+                            IF #profile.t[3] >= 1.0E-9 THEN
+                                IF "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                                        pT := #pT, vT := #vT, aT := #aT, vMax := #vMaxMag, aMax := #aMaxMag, tf := #tf) THEN
+                                    #profile.controlSigns := 0;
+                                    #found := true;
+                                END_IF;
+                            END_IF;
+                        END_IF;
+                    END_IF;
+                END_FOR;
+            END_IF;
         END_REGION
 
         REGION UDDU degree-5 polynomial
