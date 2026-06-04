@@ -79,6 +79,10 @@ FUNCTION "SolveVelTimedDir" : Void
         REGION time_acc0 - UD solution
             #sj2 := #sjMax * #sjMax;
             #radic := (-#ad * #ad + 2.0 * #sjMax * ((#a0 + #af) * #tf - 2.0 * #vd)) / #sj2 + #tf * #tf;
+            // At tf = tMin the UD discriminant is exactly 0 analytically, but
+            // float cancellation can make it a tiny negative (~ -1e-15). Clamp
+            // that band to 0 so SQRT does not fail on the degenerate (t1=0) case;
+            // genuinely-negative discriminants (<= -EPS) still skip this candidate.
             IF #radic < 0.0 AND #radic > -#EPS THEN
                 #radic := 0.0;
             END_IF;
