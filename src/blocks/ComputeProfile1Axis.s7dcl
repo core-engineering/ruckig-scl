@@ -85,6 +85,43 @@ FUNCTION "ComputeProfile1Axis" : Word
                 svMax := -#vMax, svMin := #vMax, saMax := -#aMax, saMin := #aMax, sjMax := -#jMax);
         END_REGION
 
+        REGION Two-step fallbacks (only if no main-family profile)
+            IF NOT #found THEN
+                "TwoStepNone"(profile := #profile, bestT := #bestT, bestDuration := #bestDuration,
+                    found := #found, bestSjMax := #bestSjMax, allDur := #allDur, allCount := #allCount,
+                    p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
+                    svMax := #vMax, svMin := -#vMax, saMax := #aMax, saMin := -#aMax, sjMax := #jMax);
+                "TwoStepNone"(profile := #profile, bestT := #bestT, bestDuration := #bestDuration,
+                    found := #found, bestSjMax := #bestSjMax, allDur := #allDur, allCount := #allCount,
+                    p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
+                    svMax := -#vMax, svMin := #vMax, saMax := -#aMax, saMin := #aMax, sjMax := -#jMax);
+                "TwoStepAcc0"(profile := #profile, bestT := #bestT, bestDuration := #bestDuration,
+                    found := #found, bestSjMax := #bestSjMax, allDur := #allDur, allCount := #allCount,
+                    p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
+                    svMax := #vMax, svMin := -#vMax, saMax := #aMax, saMin := -#aMax, sjMax := #jMax);
+                "TwoStepAcc0"(profile := #profile, bestT := #bestT, bestDuration := #bestDuration,
+                    found := #found, bestSjMax := #bestSjMax, allDur := #allDur, allCount := #allCount,
+                    p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
+                    svMax := -#vMax, svMin := #vMax, saMax := -#aMax, saMin := #aMax, sjMax := -#jMax);
+                "TwoStepVel"(profile := #profile, bestT := #bestT, bestDuration := #bestDuration,
+                    found := #found, bestSjMax := #bestSjMax, allDur := #allDur, allCount := #allCount,
+                    p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
+                    svMax := #vMax, svMin := -#vMax, saMax := #aMax, saMin := -#aMax, sjMax := #jMax);
+                "TwoStepVel"(profile := #profile, bestT := #bestT, bestDuration := #bestDuration,
+                    found := #found, bestSjMax := #bestSjMax, allDur := #allDur, allCount := #allCount,
+                    p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
+                    svMax := -#vMax, svMin := #vMax, saMax := -#aMax, saMin := #aMax, sjMax := -#jMax);
+                "TwoStepAcc1Vel"(profile := #profile, bestT := #bestT, bestDuration := #bestDuration,
+                    found := #found, bestSjMax := #bestSjMax, allDur := #allDur, allCount := #allCount,
+                    p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
+                    svMax := #vMax, svMin := -#vMax, saMax := #aMax, saMin := -#aMax, sjMax := #jMax);
+                "TwoStepAcc1Vel"(profile := #profile, bestT := #bestT, bestDuration := #bestDuration,
+                    found := #found, bestSjMax := #bestSjMax, allDur := #allDur, allCount := #allCount,
+                    p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
+                    svMax := -#vMax, svMin := #vMax, saMax := -#aMax, saMin := #aMax, sjMax := -#jMax);
+            END_IF;
+        END_REGION
+
         REGION Finalise winner or fail
             IF #found THEN
                 FOR #i := 0 TO 6 DO

@@ -4,10 +4,24 @@ A Siemens SCL (Structured Text) port of the [Ruckig](https://github.com/pantor/r
 Online Trajectory Generation library, for S7-1500 PLCs. MIT-licensed (same as
 upstream Ruckig).
 
-**Status: v0.8.0 — multi-axis brake pre-phase: each axis whose initial `(v0, a0)`
-is out of limits is braked before synchronization, completing the brake story
-across all sync modes (Time / No / per-DoF / TimeIfNecessary / Discrete). Builds
-on v0.7's velocity interface.**
+**Status: v0.9.0 — step1 completeness: the four two-step fallback families close the
+~3% `RESULT_ERR_SOLVER` gap on arbitrary single-axis states. Builds on v0.8's
+multi-axis brake pre-phase.**
+
+## Features (v0.9)
+
+- **step1 two-step fallback families** (`TwoStepNone`, `TwoStepAcc0`, `TwoStepVel`,
+  `TwoStepAcc1Vel`) — run as a last resort when the three main step1 families
+  (velocity-reaching, short-move, quartic) find no profile, in Ruckig's
+  interleaved-by-direction dispatch order. Closes the long-standing ~3%
+  `RESULT_ERR_SOLVER` gap on arbitrary single-axis states. Benefits the multi-axis
+  Block and the v0.8 post-brake Block automatically (they call the same FC).
+  New `v09_*` parity scenarios seeded from a gap-state discovery script
+  (`tests/parity/discover_step1_gaps.py`).
+- **Single-axis brake trigger fix** — `ComputeBrakeProfile` is now always invoked
+  (consistent with v0.8's multi-axis path), instead of the old conditional
+  `|v0|>vMax OR |a0|>aMax`. Closes a latent gap where `v0`/`a0` were each
+  in-limit but a velocity overshoot mid-acceleration would occur.
 
 ## Features (v0.8)
 
@@ -88,7 +102,7 @@ on v0.7's velocity interface.**
   agrees to the floating-point floor (~1e-15) across all profile families;
   cyclic rest-to-rest / zero-target-velocity parity holds to 1e-6
 
-### Known limitations (v0.8)
+### Known limitations (v0.9)
 
 - **Per-DoF `Phase` mixes are not supported.** A `Phase` per-DoF entry is
   silently treated as `Time`; `Phase` is a global-only mode (matches Ruckig,
@@ -100,10 +114,9 @@ on v0.7's velocity interface.**
 - **Phase + out-of-limits initial state falls back to Time** (which brakes
   correctly); it does not reproduce Ruckig's Phase-on-post-brake trajectory.
   Phase with an in-limits initial state is unchanged.
-- **step1 two-step fallbacks not yet ported.** For ~3% of arbitrary
-  initial/target state combinations the three main profile families yield no
-  feasible profile and the solver returns `RESULT_ERR_SOLVER` (Ruckig recovers
-  these via its `time_*_two_step` paths). Deferred to a dedicated pass.
+- **step2 short-move-stretched divergence** — when a small displacement is
+  re-timed to a much larger `tf`, the solver returns a valid-but-different profile
+  shape compared to Ruckig. Deferred to the next version.
 
 Resolved earlier: moving targets match Ruckig to ~1e-15 on **every** cycle
 (v0.2.1), and the over-`vMax` first-enable brake seed is now C1-continuous
@@ -134,6 +147,7 @@ One stateful FB orchestrating pure algorithmic FCs, called once per PLC cycle:
 | `ComputeVelProfileTimed` (FC) | Velocity Step 2: re-time a velocity move to an imposed duration `tf` |
 | `CheckVelProfile` (FC) | Validate a velocity-mode candidate profile by integration |
 | `CollectVelStep1Dir` / `SolveVelTimedDir` (FC) | Internal direction helpers for velocity Step 1 / Step 2 |
+| `TwoStepNone` / `TwoStepAcc0` / `TwoStepVel` / `TwoStepAcc1Vel` (FC) | Last-resort step1 fallback families (port of Ruckig's `time_*_two_step`); called by `SolveDirection` after the three main families yield no profile |
 
 Data is carried by UDTs (`typeRuckigInput`, `typeRuckigOutput`, `typeProfile`,
 `typeTrajectory`, `typeBrakeProfile`, `typeBlock`, `typeBlockSet`). See the
@@ -143,7 +157,8 @@ design specs under [docs/superpowers/specs/](docs/superpowers/specs/)
 `2026-06-03-ruckig-scl-v0.5-design.md` for v0.5,
 `2026-06-03-ruckig-scl-v0.6-design.md` for v0.6,
 `2026-06-04-ruckig-scl-v0.7-design.md` for v0.7,
-`2026-06-04-ruckig-scl-v0.8-design.md` for v0.8).
+`2026-06-04-ruckig-scl-v0.8-design.md` for v0.8,
+`2026-06-04-ruckig-scl-v0.9-design.md` for v0.9).
 
 ## How it was ported
 
@@ -263,7 +278,7 @@ uv sync                       # core deps (offline-installable)
 uv run pytest tests/unit      # unit tests
 
 uv sync --extra parity        # adds the Ruckig reference (PyPI: ruckig)
-uv run pytest tests/parity    # 53 cross-implementation parity scenarios
+uv run pytest tests/parity    # 59 cross-implementation parity scenarios
 ```
 
 ## Roadmap
@@ -277,9 +292,9 @@ uv run pytest tests/parity    # 53 cross-implementation parity scenarios
 | v0.5 | Multi-axis phase + no synchronization |
 | v0.6 | Per-DoF synchronization, TimeIfNecessary, discrete duration |
 | v0.7 | Velocity interface |
-| v0.8 | Multi-axis brake pre-phase *(this release)* |
-| v0.9 | step1 two-step fallbacks / degenerate-state completeness; first public release candidate |
-| v1.0 | Post field-testing |
+| v0.8 | Multi-axis brake pre-phase |
+| v0.9 | step1 two-step fallbacks — closes ~3% `RESULT_ERR_SOLVER` gap *(this release)* |
+| v1.0 (next) | step2 completeness (short-move-stretched divergence fix) |
 
 ## License
 
