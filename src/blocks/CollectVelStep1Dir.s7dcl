@@ -71,8 +71,10 @@ FUNCTION "CollectVelStep1Dir" : Void
             #profile.t[2] := #t2;
             IF "CheckVelProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
                     vf := #vf, af := #af, aMax := #aMag, tf := -1.0) THEN
-                #allDur[#allCount] := #t0 + #t1 + #t2;
-                #allCount := #allCount + 1;
+                IF #allCount <= 7 THEN
+                    #allDur[#allCount] := #t0 + #t1 + #t2;
+                    #allCount := #allCount + 1;
+                END_IF;
             END_IF;
         END_REGION
 
@@ -89,8 +91,10 @@ FUNCTION "CollectVelStep1Dir" : Void
                 #profile.t[2] := #t2;
                 IF "CheckVelProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
                         vf := #vf, af := #af, aMax := #aMag, tf := -1.0) THEN
-                    #allDur[#allCount] := #t0 + #t1 + #t2;
-                    #allCount := #allCount + 1;
+                    IF #allCount <= 7 THEN
+                        #allDur[#allCount] := #t0 + #t1 + #t2;
+                        #allCount := #allCount + 1;
+                    END_IF;
                 END_IF;
 
                 #t0 := (-#a0 + #h1) / #sjMax;
@@ -101,8 +105,10 @@ FUNCTION "CollectVelStep1Dir" : Void
                 #profile.t[2] := #t2;
                 IF "CheckVelProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
                         vf := #vf, af := #af, aMax := #aMag, tf := -1.0) THEN
-                    #allDur[#allCount] := #t0 + #t1 + #t2;
-                    #allCount := #allCount + 1;
+                    IF #allCount <= 7 THEN
+                        #allDur[#allCount] := #t0 + #t1 + #t2;
+                        #allCount := #allCount + 1;
+                    END_IF;
                 END_IF;
             END_IF;
         END_REGION
