@@ -3,6 +3,30 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.10.0] - 2026-06-04
+
+### Fixed
+- **step2 family-selection parity.** `ComputeProfile1AxisTimed` now matches the
+  Ruckig oracle's profile *shape* (not just validity) on stretched `(state × tf)`
+  cases — closing the last known parity gap (measured ~1.7% divergence → 0). Two
+  causes fixed:
+  1. **`SolveTimedVel` root precision.** Added the oracle's all-zero-boundary
+     exact **cubic** branch, and replaced the general degree-5 (UDDU) / degree-6
+     (UDUD) dense-scan root-finding with the oracle's **derivative-extrema
+     seeding** (`SolveQuartic` on the polynomial's derivative → robust bracketing
+     → `ShrinkInterval` → Newton). The velocity-plateau root now resolves to
+     ≤ 1e-9 (previously ~2e-5, which failed `CheckProfile`'s 1e-6 tolerance and
+     let a later family mask VEL).
+  2. **Structural `ReachedLimits` guards.** The limit-reaching step2 families now
+     require their defining plateau (`t[3] ≥ ε` for the velocity families,
+     `t[1] ≥ ε` for ACC0, `t[5] ≥ ε` for ACC1, both for ACC0_ACC1), matching
+     Ruckig's `check<>` — so a structurally-degenerate profile can no longer be
+     greedily accepted ahead of the correct family.
+- `CheckProfile` and the step2 dispatch order are unchanged.
+
+### Notes
+- Both step1 (v0.9) and step2 are now parity-complete. Next: performance / pre-1.0.
+
 ## [0.9.0] - 2026-06-04
 
 ### Added
@@ -330,6 +354,7 @@ out-of-limits first enable. Builds on the v0.1 FB/UDT layer.
   returns `RESULT_ERR_SOLVER` if ever required): the zero-limits special case
   and the two-step fallbacks (`time_*_two_step`).
 
+[0.10.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.10.0
 [0.9.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.9.0
 [0.8.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.8.0
 [0.7.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.7.0
