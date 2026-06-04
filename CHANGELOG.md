@@ -17,7 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   per-DoF / TimeIfNecessary / Discrete synchronization all work for velocity.
 - `ValidateInput` velocity-mode rules and `RESULT_ERR_IFACE` (16#8208) for an
   out-of-range `controlInterface`.
-- 8 velocity parity scenarios (`v07_01`..`v07_08`).
+- 9 velocity parity scenarios (`v07_01`..`v07_09`), including an out-of-limit
+  initial-acceleration case (the velocity Step-1 solver absorbs an arbitrary `a0`).
 
 ### Known limitations
 - **Velocity + Phase synchronization falls back to Time** and does NOT match

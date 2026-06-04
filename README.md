@@ -249,7 +249,7 @@ uv sync                       # core deps (offline-installable)
 uv run pytest tests/unit      # unit tests
 
 uv sync --extra parity        # adds the Ruckig reference (PyPI: ruckig)
-uv run pytest tests/parity    # 44 cross-implementation parity scenarios
+uv run pytest tests/parity    # 45 cross-implementation parity scenarios
 ```
 
 ## Roadmap
