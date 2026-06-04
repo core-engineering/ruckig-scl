@@ -1,0 +1,193 @@
+{
+    S7_Author := "Camille Martin";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.7.0"
+}
+FUNCTION "SolveVelTimedDir" : Void
+    VAR_IN_OUT
+        profile : _.typeProfile;
+        found   : Bool;
+    END_VAR
+    VAR_INPUT
+        p0    : LReal;
+        v0    : LReal;
+        a0    : LReal;
+        vf    : LReal;
+        af    : LReal;
+        saMax : LReal;
+        sjMax : LReal;
+        tf    : LReal;
+    END_VAR
+    VAR_TEMP
+        vd    : LReal;
+        ad    : LReal;
+        aMag  : LReal;
+        jMag  : LReal;
+        h1    : LReal;
+        radic : LReal;
+        denom : LReal;
+        sj2   : LReal;
+        jf    : LReal;
+        t0    : LReal;
+        t1    : LReal;
+        t2    : LReal;
+        t6    : LReal;
+        i     : DInt;
+    END_VAR
+    VAR CONSTANT
+        EPS : LReal := 1.0E-12;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      SolveVelTimedDir
+            // Function:   Velocity Step-2 helper for ONE signed direction.
+            //             Self-skips when found. Tries time_acc0 (UD, UU, UU-2-
+            //             step) then time_none (trivial coast, UD recomputed jerk),
+            //             validating each with CheckVelProfile(tf). Sets the UDDU
+            //             jerk pattern of the winning candidate.
+            // Family:     Ruckig
+            // Author:     Camille Martin
+            // Ref:        ruckig/src/ruckig/velocity_third_step2.cpp
+            //==========================================================
+        END_REGION
+
+        REGION Skip if a previous direction already solved
+            IF #found THEN
+                RETURN;
+            END_IF;
+        END_REGION
+
+        REGION Setup
+            #vd   := #vf - #v0;
+            #ad   := #af - #a0;
+            #aMag := ABS(#saMax);
+            #jMag := ABS(#sjMax);
+            #profile.j[0] := #sjMax;
+            #profile.j[1] := 0.0;
+            #profile.j[2] := -#sjMax;
+            #profile.j[3] := 0.0;
+            #profile.j[4] := -#sjMax;
+            #profile.j[5] := 0.0;
+            #profile.j[6] := #sjMax;
+        END_REGION
+
+        REGION time_acc0 - UD solution
+            #sj2 := #sjMax * #sjMax;
+            #radic := (-#ad * #ad + 2.0 * #sjMax * ((#a0 + #af) * #tf - 2.0 * #vd)) / #sj2 + #tf * #tf;
+            IF #radic >= 0.0 THEN
+                #h1 := SQRT(#radic);
+                #t0 := #ad / (2.0 * #sjMax) + (#tf - #h1) / 2.0;
+                #t1 := #h1;
+                #t2 := #tf - (#t0 + #h1);
+                #profile.t[0] := #t0;
+                #profile.t[1] := #t1;
+                #profile.t[2] := #t2;
+                #profile.t[3] := 0.0;
+                #profile.t[4] := 0.0;
+                #profile.t[5] := 0.0;
+                #profile.t[6] := 0.0;
+                IF "CheckVelProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                        vf := #vf, af := #af, aMax := #aMag, tf := #tf) THEN
+                    #found := true;
+                    RETURN;
+                END_IF;
+            END_IF;
+        END_REGION
+
+        REGION time_acc0 - UU solution
+            #denom := -#ad + #sjMax * #tf;
+            IF ABS(#denom) > #EPS THEN
+                #t0 := -#ad * #ad / (2.0 * #sjMax * #denom) + (#vd - #a0 * #tf) / #denom;
+                #t1 := -#ad / #sjMax + #tf;
+                #t2 := 0.0;
+                #t6 := #tf - (#t0 + #t1);
+                #profile.t[0] := #t0;
+                #profile.t[1] := #t1;
+                #profile.t[2] := 0.0;
+                #profile.t[3] := 0.0;
+                #profile.t[4] := 0.0;
+                #profile.t[5] := 0.0;
+                #profile.t[6] := #t6;
+                IF "CheckVelProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                        vf := #vf, af := #af, aMax := #aMag, tf := #tf) THEN
+                    #found := true;
+                    RETURN;
+                END_IF;
+            END_IF;
+        END_REGION
+
+        REGION time_acc0 - UU 2-step solution
+            #t1 := -#ad / #sjMax + #tf;
+            #t6 := #ad / #sjMax;
+            #profile.t[0] := 0.0;
+            #profile.t[1] := #t1;
+            #profile.t[2] := 0.0;
+            #profile.t[3] := 0.0;
+            #profile.t[4] := 0.0;
+            #profile.t[5] := 0.0;
+            #profile.t[6] := #t6;
+            IF "CheckVelProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                    vf := #vf, af := #af, aMax := #aMag, tf := #tf) THEN
+                #found := true;
+                RETURN;
+            END_IF;
+        END_REGION
+
+        REGION time_none - trivial coast (a0 = af = vd = 0)
+            IF ABS(#a0) < #EPS AND ABS(#af) < #EPS AND ABS(#vd) < #EPS THEN
+                #profile.t[0] := 0.0;
+                #profile.t[1] := #tf;
+                #profile.t[2] := 0.0;
+                #profile.t[3] := 0.0;
+                #profile.t[4] := 0.0;
+                #profile.t[5] := 0.0;
+                #profile.t[6] := 0.0;
+                #profile.j[0] := 0.0;
+                #profile.j[2] := 0.0;
+                #profile.j[4] := 0.0;
+                #profile.j[6] := 0.0;
+                IF "CheckVelProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                        vf := #vf, af := #af, aMax := #aMag, tf := #tf) THEN
+                    #found := true;
+                    RETURN;
+                END_IF;
+                #profile.j[0] := #sjMax;
+                #profile.j[2] := -#sjMax;
+                #profile.j[4] := -#sjMax;
+                #profile.j[6] := #sjMax;
+            END_IF;
+        END_REGION
+
+        REGION time_none - UD solution (recomputed jerk jf)
+            #h1 := 2.0 * (#af * #tf - #vd);
+            IF ABS(#ad) > #EPS AND ABS(#h1) > #EPS THEN
+                #t0 := #h1 / #ad;
+                #t1 := #tf - #t0;
+                #jf := #ad * #ad / #h1;
+                IF ABS(#jf) < #jMag + 1.0E-12 THEN
+                    #profile.t[0] := #t0;
+                    #profile.t[1] := #t1;
+                    #profile.t[2] := 0.0;
+                    #profile.t[3] := 0.0;
+                    #profile.t[4] := 0.0;
+                    #profile.t[5] := 0.0;
+                    #profile.t[6] := 0.0;
+                    #profile.j[0] := #jf;
+                    #profile.j[2] := -#jf;
+                    #profile.j[4] := -#jf;
+                    #profile.j[6] := #jf;
+                    IF "CheckVelProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                            vf := #vf, af := #af, aMax := #aMag, tf := #tf) THEN
+                        #found := true;
+                        RETURN;
+                    END_IF;
+                END_IF;
+            END_IF;
+        END_REGION
+    END_NETWORK
+END_FUNCTION
