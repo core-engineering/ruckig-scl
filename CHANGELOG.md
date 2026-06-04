@@ -3,6 +3,30 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-06-04
+
+### Added
+- **Multi-axis brake pre-phase.** The multi-axis recompute path now brakes each
+  axis whose initial `(v0, a0)` is out of limits (`|v0| > vMax` or `|a0| > aMax`)
+  before synchronization, completing the brake story (the single-axis path
+  already braked). Per axis: `ComputeBrakeProfile` -> Block from the post-brake
+  state -> brake duration folded into the Block (total-duration space, per Ruckig
+  `block.hpp`) -> `Synchronize` unchanged -> inner profile re-timed to
+  `t_sync - brakeDuration`. Works across Time / No / per-dof / TimeIfNecessary /
+  Discrete.
+- 8 brake parity scenarios (`v08_01`..`v08_08`): single-axis (regression guard)
+  and multi-axis (braked-axis-limiting / not-limiting / a0>aMax / No-axis /
+  discrete).
+
+### Known limitations
+- **Phase + out-of-limits initial state falls back to Time** (which brakes); it
+  does not reproduce Ruckig's Phase-on-post-brake trajectory. Phase with an
+  in-limits initial state is unchanged.
+
+### Notes
+- Velocity-interface brake is not needed (the v0.7 velocity solver absorbs an
+  arbitrary `a0`). step1 `time_*_two_step` fallbacks remain deferred.
+
 ## [0.7.0] - 2026-06-04
 
 ### Added
@@ -282,6 +306,7 @@ out-of-limits first enable. Builds on the v0.1 FB/UDT layer.
   returns `RESULT_ERR_SOLVER` if ever required): the zero-limits special case
   and the two-step fallbacks (`time_*_two_step`).
 
+[0.8.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.8.0
 [0.7.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.7.0
 [0.6.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.6.0
 [0.5.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.5.0

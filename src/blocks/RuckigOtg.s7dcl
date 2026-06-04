@@ -3,7 +3,7 @@
     S7_EditorMode := "SCL";
     S7_Family := "Ruckig";
     S7_Optimized := "TRUE";
-    S7_Version := "0.7.0"
+    S7_Version := "0.8.0"
 }
 FUNCTION_BLOCK "RuckigOtg"
     VAR_INPUT
@@ -48,6 +48,7 @@ FUNCTION_BLOCK "RuckigOtg"
         mainA0 : LReal;
         // duration accumulation
         mainDuration : LReal;
+        brakeDur     : Array[0..3] of LReal;   // per-axis brake duration (multi-axis flow; cf. scalar brakeDuration for single-axis)
         i            : DInt;
         // already-at-target degenerate guard
         atTarget : Bool;
@@ -464,12 +465,32 @@ FUNCTION_BLOCK "RuckigOtg"
                             #participates[#ax] := #modeEff[#ax] <> "dbRuckigConst".SYNC_NONE;
                         END_FOR;
 
-                        // 2. Block every axis (No axes' tMin still sets the t_sync floor)
+                        // 2. Brake each axis (out-of-limit v0/a0), Block from the
+                        //    post-brake state, then fold the brake duration into the
+                        //    Block so Synchronize works in total-duration space
+                        //    (Ruckig block.hpp: t_min = t_sum + brake.duration).
                         FOR #ax := 0 TO #nd - 1 DO
+                            // ComputeBrakeProfile writes profile.brake (integrated
+                            // prefix) and the post-brake state into brake.p[2]
+                            // (relative position advance), brake.v[2], brake.a[2].
+                            // It clears the brake and returns 0 when already in limits.
+                            // Do NOT bind its => outputs (transpiler quirk #6); read
+                            // the post-brake state from profile.brake.[2].
+                            #brakeDur[#ax] := "ComputeBrakeProfile"(
+                                profile := #trajectory.profiles[#ax],
+                                v0 := #chainVel[#ax],
+                                a0 := #chainAcc[#ax],
+                                vMax := #input.maxVelocity[#ax],
+                                aMax := #input.maxAcceleration[#ax],
+                                jMax := #input.maxJerk[#ax]);
+                            #mainP0 := #chainPos[#ax] + #trajectory.profiles[#ax].brake.p[2];
+                            #mainV0 := #trajectory.profiles[#ax].brake.v[2];
+                            #mainA0 := #trajectory.profiles[#ax].brake.a[2];
+
                             #blockResult := "ComputeBlock1Axis"(
                                 block := #blockSet.items[#ax],
                                 profile := #trajectory.profiles[#ax],
-                                p0 := #chainPos[#ax], v0 := #chainVel[#ax], a0 := #chainAcc[#ax],
+                                p0 := #mainP0, v0 := #mainV0, a0 := #mainA0,
                                 pT := #input.targetPosition[#ax],
                                 vT := #input.targetVelocity[#ax],
                                 aT := #input.targetAcceleration[#ax],
@@ -484,6 +505,17 @@ FUNCTION_BLOCK "RuckigOtg"
                                 #status := "dbRuckigConst".RESULT_ERR_TRAJ;
                                 #trajectory.isValid := false;
                                 RETURN;
+                            END_IF;
+
+                            // fold the brake into the Block (total-duration space)
+                            #blockSet.items[#ax].tMin := #blockSet.items[#ax].tMin + #brakeDur[#ax];
+                            IF #blockSet.items[#ax].aValid THEN
+                                #blockSet.items[#ax].aLeft := #blockSet.items[#ax].aLeft + #brakeDur[#ax];
+                                #blockSet.items[#ax].aRight := #blockSet.items[#ax].aRight + #brakeDur[#ax];
+                            END_IF;
+                            IF #blockSet.items[#ax].bValid THEN
+                                #blockSet.items[#ax].bLeft := #blockSet.items[#ax].bLeft + #brakeDur[#ax];
+                                #blockSet.items[#ax].bRight := #blockSet.items[#ax].bRight + #brakeDur[#ax];
                             END_IF;
                         END_FOR;
 
@@ -510,22 +542,10 @@ FUNCTION_BLOCK "RuckigOtg"
                         END_IF;
 
                         // 4. emit per axis
+                        //    profile.brake already populated/cleared by ComputeBrakeProfile
+                        //    in the Block loop above; do NOT zero-fill it here.
                         #mainDuration := 0.0;
                         FOR #ax := 0 TO #nd - 1 DO
-                            #trajectory.profiles[#ax].brake.t[0] := 0.0;
-                            #trajectory.profiles[#ax].brake.t[1] := 0.0;
-                            #trajectory.profiles[#ax].brake.j[0] := 0.0;
-                            #trajectory.profiles[#ax].brake.j[1] := 0.0;
-                            #trajectory.profiles[#ax].brake.a[0] := 0.0;
-                            #trajectory.profiles[#ax].brake.a[1] := 0.0;
-                            #trajectory.profiles[#ax].brake.a[2] := 0.0;
-                            #trajectory.profiles[#ax].brake.v[0] := 0.0;
-                            #trajectory.profiles[#ax].brake.v[1] := 0.0;
-                            #trajectory.profiles[#ax].brake.v[2] := 0.0;
-                            #trajectory.profiles[#ax].brake.p[0] := 0.0;
-                            #trajectory.profiles[#ax].brake.p[1] := 0.0;
-                            #trajectory.profiles[#ax].brake.p[2] := 0.0;
-
                             #tinMoving := #modeEff[#ax] = "dbRuckigConst".SYNC_TIME;
                             IF #modeEff[#ax] = "dbRuckigConst".SYNC_TIME_IF_NECESSARY THEN
                                 IF ABS(#input.targetVelocity[#ax]) > "dbRuckigConst".EPS_VELOCITY
@@ -554,13 +574,16 @@ FUNCTION_BLOCK "RuckigOtg"
                                     #trajectory.profiles[#ax].p[#i] := #chainPos[#ax];
                                 END_FOR;
                             ELSIF #tinMoving THEN
+                                #mainP0 := #chainPos[#ax] + #trajectory.profiles[#ax].brake.p[2];
+                                #mainV0 := #trajectory.profiles[#ax].brake.v[2];
+                                #mainA0 := #trajectory.profiles[#ax].brake.a[2];
                                 #profileResult := "ComputeProfile1AxisTimed"(
                                     profile := #trajectory.profiles[#ax],
-                                    p0 := #chainPos[#ax], v0 := #chainVel[#ax], a0 := #chainAcc[#ax],
+                                    p0 := #mainP0, v0 := #mainV0, a0 := #mainA0,
                                     pT := #input.targetPosition[#ax], vT := #input.targetVelocity[#ax],
                                     aT := #input.targetAcceleration[#ax],
                                     vMax := #input.maxVelocity[#ax], aMax := #input.maxAcceleration[#ax],
-                                    jMax := #input.maxJerk[#ax], tf := #tSync);
+                                    jMax := #input.maxJerk[#ax], tf := #tSync - #brakeDur[#ax]);
                                 IF #profileResult <> "dbRuckigConst".RESULT_WORKING AND #profileResult <> "dbRuckigConst".RESULT_FINISHED THEN
                                     #valid := false;
                                     #busy := false;
@@ -571,8 +594,11 @@ FUNCTION_BLOCK "RuckigOtg"
                                     RETURN;
                                 END_IF;
                             ELSE
+                                #mainP0 := #chainPos[#ax] + #trajectory.profiles[#ax].brake.p[2];
+                                #mainV0 := #trajectory.profiles[#ax].brake.v[2];
+                                #mainA0 := #trajectory.profiles[#ax].brake.a[2];
                                 #profileResult := "ComputeProfile1Axis"(profile := #trajectory.profiles[#ax],
-                                    p0 := #chainPos[#ax], v0 := #chainVel[#ax], a0 := #chainAcc[#ax],
+                                    p0 := #mainP0, v0 := #mainV0, a0 := #mainA0,
                                     pT := #input.targetPosition[#ax], vT := #input.targetVelocity[#ax],
                                     aT := #input.targetAcceleration[#ax],
                                     vMax := #input.maxVelocity[#ax], aMax := #input.maxAcceleration[#ax],
@@ -588,10 +614,11 @@ FUNCTION_BLOCK "RuckigOtg"
                                 END_IF;
                             END_IF;
 
-                            #axDur := 0.0;
+                            #axDur := #brakeDur[#ax];
                             FOR #i := 0 TO 6 DO
                                 #axDur := #axDur + #trajectory.profiles[#ax].t[#i];
                             END_FOR;
+                            // tMin already includes brakeDur[ax] (folded in the Block loop above)
                             IF #participates[#ax] THEN
                                 #trajectory.independentMinDurations[#ax] := #blockSet.items[#ax].tMin;
                             ELSE
