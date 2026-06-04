@@ -41,6 +41,7 @@ def _kwargs_from_scenario(data: dict) -> dict:
         "synchronization": data.get("synchronization", 2),
         "per_dof_synchronization": data.get("per_dof_synchronization"),
         "duration_discretization": data.get("duration_discretization", 0),
+        "control_interface": data.get("control_interface", 0),
     }
 
 

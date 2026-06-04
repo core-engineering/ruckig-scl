@@ -1,0 +1,9 @@
+name: v0.7 1-DoF velocity rest -> target velocity
+control_interface: velocity
+n_dofs: 1
+current_velocity: [0.0]
+target_velocity: [1.5]
+max_velocity: [2.0]
+max_acceleration: [5.0]
+max_jerk: [10.0]
+cycle_time: 0.010

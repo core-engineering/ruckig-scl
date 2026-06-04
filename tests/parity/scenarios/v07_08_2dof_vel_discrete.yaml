@@ -1,0 +1,11 @@
+name: v0.7 2-DoF velocity time-sync with discrete duration
+control_interface: velocity
+synchronization: 2
+duration_discretization: 1
+n_dofs: 2
+current_velocity: [0.0, 0.0]
+target_velocity: [2.0, 0.5]
+max_velocity: [3.0, 3.0]
+max_acceleration: [5.0, 5.0]
+max_jerk: [10.0, 10.0]
+cycle_time: 0.010

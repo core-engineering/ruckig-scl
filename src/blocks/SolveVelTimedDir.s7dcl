@@ -79,6 +79,9 @@ FUNCTION "SolveVelTimedDir" : Void
         REGION time_acc0 - UD solution
             #sj2 := #sjMax * #sjMax;
             #radic := (-#ad * #ad + 2.0 * #sjMax * ((#a0 + #af) * #tf - 2.0 * #vd)) / #sj2 + #tf * #tf;
+            IF #radic < 0.0 AND #radic > -#EPS THEN
+                #radic := 0.0;
+            END_IF;
             IF #radic >= 0.0 THEN
                 #h1 := SQRT(#radic);
                 #t0 := #ad / (2.0 * #sjMax) + (#tf - #h1) / 2.0;
