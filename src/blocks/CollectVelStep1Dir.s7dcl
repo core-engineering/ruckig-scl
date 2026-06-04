@@ -1,0 +1,110 @@
+{
+    S7_Author := "Camille Martin";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.7.0"
+}
+FUNCTION "CollectVelStep1Dir" : Void
+    VAR_IN_OUT
+        profile  : _.typeProfile;
+        allDur   : Array[0..7] of LReal;
+        allCount : Int;
+    END_VAR
+    VAR_INPUT
+        p0    : LReal;
+        v0    : LReal;
+        a0    : LReal;
+        vf    : LReal;
+        af    : LReal;
+        saMax : LReal;
+        sjMax : LReal;
+    END_VAR
+    VAR_TEMP
+        vd    : LReal;
+        denom : LReal;
+        h1sq  : LReal;
+        h1    : LReal;
+        t0    : LReal;
+        t1    : LReal;
+        t2    : LReal;
+        aMag  : LReal;
+        i     : DInt;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      CollectVelStep1Dir
+            // Function:   Velocity Step-1 helper. Tries time_acc0 and the two
+            //             time_none solutions for ONE signed direction; appends
+            //             every CheckVelProfile-valid total duration to allDur.
+            // Family:     Ruckig
+            // Author:     Camille Martin
+            // Ref:        ruckig/src/ruckig/velocity_third_step1.cpp
+            //==========================================================
+        END_REGION
+
+        REGION Setup
+            #vd   := #vf - #v0;
+            #aMag := ABS(#saMax);
+            FOR #i := 3 TO 6 DO
+                #profile.t[#i] := 0.0;
+            END_FOR;
+            #profile.j[0] := #sjMax;
+            #profile.j[1] := 0.0;
+            #profile.j[2] := -#sjMax;
+            #profile.j[3] := 0.0;
+            #profile.j[4] := -#sjMax;
+            #profile.j[5] := 0.0;
+            #profile.j[6] := #sjMax;
+        END_REGION
+
+        REGION time_acc0 (reaches the aMax plateau)
+            #denom := 2.0 * #saMax * #sjMax;
+            #t0 := (-#a0 + #saMax) / #sjMax;
+            #t1 := (#a0 * #a0 + #af * #af) / #denom - #saMax / #sjMax + #vd / #saMax;
+            #t2 := (-#af + #saMax) / #sjMax;
+            #profile.t[0] := #t0;
+            #profile.t[1] := #t1;
+            #profile.t[2] := #t2;
+            IF "CheckVelProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                    vf := #vf, af := #af, aMax := #aMag, tf := -1.0) THEN
+                #allDur[#allCount] := #t0 + #t1 + #t2;
+                #allCount := #allCount + 1;
+            END_IF;
+        END_REGION
+
+        REGION time_none (no plateau; two solutions)
+            #h1sq := (#a0 * #a0 + #af * #af) / 2.0 + #sjMax * #vd;
+            IF #h1sq >= 0.0 THEN
+                #h1 := SQRT(#h1sq);
+
+                #t0 := -(#a0 + #h1) / #sjMax;
+                #t1 := 0.0;
+                #t2 := -(#af + #h1) / #sjMax;
+                #profile.t[0] := #t0;
+                #profile.t[1] := #t1;
+                #profile.t[2] := #t2;
+                IF "CheckVelProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                        vf := #vf, af := #af, aMax := #aMag, tf := -1.0) THEN
+                    #allDur[#allCount] := #t0 + #t1 + #t2;
+                    #allCount := #allCount + 1;
+                END_IF;
+
+                #t0 := (-#a0 + #h1) / #sjMax;
+                #t1 := 0.0;
+                #t2 := (-#af + #h1) / #sjMax;
+                #profile.t[0] := #t0;
+                #profile.t[1] := #t1;
+                #profile.t[2] := #t2;
+                IF "CheckVelProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                        vf := #vf, af := #af, aMax := #aMag, tf := -1.0) THEN
+                    #allDur[#allCount] := #t0 + #t1 + #t2;
+                    #allCount := #allCount + 1;
+                END_IF;
+            END_IF;
+        END_REGION
+    END_NETWORK
+END_FUNCTION

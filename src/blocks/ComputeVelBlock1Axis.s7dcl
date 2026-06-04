@@ -1,0 +1,128 @@
+{
+    S7_Author := "Camille Martin";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.7.0"
+}
+FUNCTION "ComputeVelBlock1Axis" : Word
+    VAR_IN_OUT
+        block   : _.typeBlock;
+        profile : _.typeProfile;
+    END_VAR
+    VAR_INPUT
+        p0   : LReal;
+        v0   : LReal;
+        a0   : LReal;
+        vf   : LReal;
+        af   : LReal;
+        aMax : LReal;
+        jMax : LReal;
+    END_VAR
+    VAR_TEMP
+        allDur   : Array[0..7] of LReal;
+        allCount : Int;
+        nd       : Int;
+        i        : Int;
+        k        : Int;
+        tmp      : LReal;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      ComputeVelBlock1Axis
+            // Function:   Velocity Step-1 as a reachable-duration Block. Runs
+            //             CollectVelStep1Dir in both directions, sorts/dedups the
+            //             valid durations, then derives tMin + blocked intervals
+            //             (no interval when af ~ 0, per Ruckig). Foundation for
+            //             velocity-interface multi-axis synchronization.
+            // Family:     Ruckig
+            // Author:     Camille Martin
+            // Ref:        ruckig/src/ruckig/velocity_third_step1.cpp
+            //==========================================================
+        END_REGION
+
+        REGION Already-at-velocity-target degenerate guard
+            IF ABS(#vf - #v0) < "dbRuckigConst".EPS_VELOCITY
+                AND ABS(#af - #a0) < "dbRuckigConst".EPS_DERIV THEN
+                #block.tMin   := 0.0;
+                #block.found  := true;
+                #block.aValid := false;
+                #block.bValid := false;
+                #ComputeVelBlock1Axis := "dbRuckigConst".RESULT_WORKING;
+                RETURN;
+            END_IF;
+        END_REGION
+
+        REGION Collect valid durations (both directions)
+            #allCount := 0;
+            "CollectVelStep1Dir"(profile := #profile, allDur := #allDur, allCount := #allCount,
+                p0 := #p0, v0 := #v0, a0 := #a0, vf := #vf, af := #af,
+                saMax := #aMax, sjMax := #jMax);
+            "CollectVelStep1Dir"(profile := #profile, allDur := #allDur, allCount := #allCount,
+                p0 := #p0, v0 := #v0, a0 := #a0, vf := #vf, af := #af,
+                saMax := -#aMax, sjMax := -#jMax);
+        END_REGION
+
+        REGION Fail if no profile
+            IF #allCount = 0 THEN
+                #block.found := false;
+                #ComputeVelBlock1Axis := "dbRuckigConst".RESULT_ERR_SOLVER;
+                RETURN;
+            END_IF;
+        END_REGION
+
+        REGION Sort ascending (bubble)
+            FOR #i := 0 TO #allCount - 2 DO
+                FOR #k := 0 TO #allCount - 2 - #i DO
+                    IF #allDur[#k] > #allDur[#k + 1] THEN
+                        #tmp := #allDur[#k];
+                        #allDur[#k] := #allDur[#k + 1];
+                        #allDur[#k + 1] := #tmp;
+                    END_IF;
+                END_FOR;
+            END_FOR;
+        END_REGION
+
+        REGION Deduplicate -> nd distinct durations
+            #nd := 0;
+            FOR #i := 0 TO #allCount - 1 DO
+                IF #nd = 0 THEN
+                    #allDur[0] := #allDur[#i];
+                    #nd := 1;
+                ELSIF #allDur[#i] - #allDur[#nd - 1] > 1.0E-7 THEN
+                    #allDur[#nd] := #allDur[#i];
+                    #nd := #nd + 1;
+                END_IF;
+            END_FOR;
+        END_REGION
+
+        REGION Assemble Block (no interval when af ~ 0)
+            #block.found  := true;
+            #block.tMin   := #allDur[0];
+            #block.aValid := false;
+            #block.bValid := false;
+            IF ABS(#af) >= "dbRuckigConst".EPS_DERIV THEN
+                IF #nd = 2 THEN
+                    #block.aValid := true;
+                    #block.aLeft  := #allDur[0];
+                    #block.aRight := #allDur[1];
+                ELSIF #nd = 3 THEN
+                    #block.aValid := true;
+                    #block.aLeft  := #allDur[1];
+                    #block.aRight := #allDur[2];
+                ELSIF #nd = 5 THEN
+                    #block.aValid := true;
+                    #block.aLeft  := #allDur[1];
+                    #block.aRight := #allDur[2];
+                    #block.bValid := true;
+                    #block.bLeft  := #allDur[3];
+                    #block.bRight := #allDur[4];
+                END_IF;
+            END_IF;
+            #ComputeVelBlock1Axis := "dbRuckigConst".RESULT_WORKING;
+        END_REGION
+    END_NETWORK
+END_FUNCTION
