@@ -1,0 +1,144 @@
+{
+    S7_Author := "Camille Martin";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.9.0"
+}
+FUNCTION "TwoStepAcc1Vel" : Void
+    VAR_IN_OUT
+        profile      : _.typeProfile;
+        bestT        : Array[0..6] of LReal;
+        bestDuration : LReal;
+        found        : Bool;
+        bestSjMax    : LReal;
+        allDur       : Array[0..7] of LReal;
+        allCount     : Int;
+    END_VAR
+    VAR_INPUT
+        p0    : LReal;
+        v0    : LReal;
+        a0    : LReal;
+        pT    : LReal;
+        vT    : LReal;
+        aT    : LReal;
+        svMax : LReal;
+        svMin : LReal;
+        saMax : LReal;
+        saMin : LReal;
+        sjMax : LReal;
+    END_VAR
+    VAR_TEMP
+        vMaxMag   : LReal;
+        aMaxMag   : LReal;
+        pd        : LReal;
+        a0_a0     : LReal;
+        af_af     : LReal;
+        a0_p3     : LReal;
+        af_p3     : LReal;
+        af_p4     : LReal;
+        jMax_jMax : LReal;
+        // compound denominators (transpiler: no /(a*b))
+        den24aminj2vMax : LReal;
+        denaminj        : LReal;
+        // inner scalar division
+        innerDiv        : LReal;
+        ok  : Bool;
+        dur : LReal;
+        i   : DInt;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      TwoStepAcc1Vel
+            // Function:   step1 last-resort fallback (ACC1_VEL shape). Port of Ruckig
+            //             time_acc1_vel_two_step (position_third_step1.cpp l.287-300).
+            //             1 sub-case; commits if CheckProfile-valid and returns.
+            // Family:     Ruckig
+            // Author:     Camille Martin
+            //==========================================================
+        END_REGION
+
+        REGION Skip if already solved
+            IF #found THEN
+                RETURN;
+            END_IF;
+        END_REGION
+
+        REGION Precompute + UDDU jerk
+            #vMaxMag   := ABS(#svMax);
+            #aMaxMag   := ABS(#saMax);
+            #pd        := #pT - #p0;
+            #a0_a0     := #a0 * #a0;
+            #af_af     := #aT * #aT;
+            #a0_p3     := #a0 * #a0_a0;
+            #af_p3     := #aT * #af_af;
+            #af_p4     := #af_af * #af_af;
+            #jMax_jMax := #sjMax * #sjMax;
+            #profile.j[0] := #sjMax;
+            #profile.j[1] := 0.0;
+            #profile.j[2] := -#sjMax;
+            #profile.j[3] := 0.0;
+            #profile.j[4] := -#sjMax;
+            #profile.j[5] := 0.0;
+            #profile.j[6] := #sjMax;
+            #profile.direction := 1;
+            #profile.controlSigns := 0;
+        END_REGION
+
+        REGION Sub-case: ACC1_VEL
+            // t0=0; t1=0; t2=a0/jMax;
+            // t3 = -(3*af^4 - 8*aMin*(af^3-a0^3) - 24*aMin*jMax*(a0*v0-af*vf)
+            //       + 6*af^2*(aMin^2-2*jMax*vf)
+            //       - 12*jMax*(2*aMin*jMax*pd + aMin^2*(vf+vMax)
+            //                  + jMax*(vMax^2-vf^2)
+            //                  + aMin*a0*(a0^2-2*jMax*(v0+vMax))/jMax))
+            //      / (24*aMin*jMax^2*vMax)
+            // t4 = -aMin/jMax
+            // t5 = -(af^2/2 - aMin^2 + jMax*(vMax-vf))/(aMin*jMax)
+            // t6 = t4 + af/jMax
+            // aMin=saMin, vMax=svMax, vf=vT, af=aT
+            // precompute compound denominators
+            #den24aminj2vMax := 24.0 * #saMin * #jMax_jMax * #svMax;
+            #denaminj        := #saMin * #sjMax;
+            // the inner /jMax term is a plain scalar division
+            #innerDiv := #saMin * #a0 * (#a0_a0 - 2.0 * #sjMax * (#v0 + #svMax)) / #sjMax;
+            #profile.t[0] := 0.0;
+            #profile.t[1] := 0.0;
+            #profile.t[2] := #a0 / #sjMax;
+            #profile.t[3] := -(3.0 * #af_p4
+                - 8.0 * #saMin * (#af_p3 - #a0_p3)
+                - 24.0 * #saMin * #sjMax * (#a0 * #v0 - #aT * #vT)
+                + 6.0 * #af_af * (#saMin * #saMin - 2.0 * #sjMax * #vT)
+                - 12.0 * #sjMax * (2.0 * #saMin * #sjMax * #pd
+                    + #saMin * #saMin * (#vT + #svMax)
+                    + #sjMax * (#svMax * #svMax - #vT * #vT)
+                    + #innerDiv))
+                / #den24aminj2vMax;
+            #profile.t[4] := -#saMin / #sjMax;
+            #profile.t[5] := -(#af_af / 2.0 - #saMin * #saMin + #sjMax * (#svMax - #vT)) / #denaminj;
+            #profile.t[6] := #profile.t[4] + #aT / #sjMax;
+            #ok := "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                pT := #pT, vT := #vT, aT := #aT, vMax := #vMaxMag, aMax := #aMaxMag, tf := -1.0);
+            IF #ok THEN
+                #dur := 0.0;
+                FOR #i := 0 TO 6 DO
+                    #dur := #dur + #profile.t[#i];
+                END_FOR;
+                IF #allCount <= 7 THEN
+                    #allDur[#allCount] := #dur;
+                    #allCount := #allCount + 1;
+                END_IF;
+                #bestDuration := #dur;
+                #found := true;
+                #bestSjMax := #sjMax;
+                FOR #i := 0 TO 6 DO
+                    #bestT[#i] := #profile.t[#i];
+                END_FOR;
+                RETURN;
+            END_IF;
+        END_REGION
+    END_NETWORK
+END_FUNCTION

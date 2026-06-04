@@ -357,45 +357,25 @@ FUNCTION_BLOCK "RuckigOtg"
 
                     // ---- Brake + solve (only when NOT already at target) ---
                     IF NOT #atTarget THEN
-                        #brakeNeeded := ABS(#chainVel[0]) > #input.maxVelocity[0]
-                            OR ABS(#chainAcc[0]) > #input.maxAcceleration[0];
-
-                        IF #brakeNeeded THEN
-                            // NOTE: the transpiler drops "=>" VAR_OUTPUT bindings
-                            // when a function's return value is consumed, so we do
-                            // NOT bind pBrake/vBrake/aBrake here. ComputeBrakeProfile
-                            // also writes the post-brake state into profile.brake
-                            // (p[2]=position advance, v[2]/a[2]=post-brake v/a) via
-                            // the reliable VAR_IN_OUT profile; read it from there.
-                            #brakeDuration := "ComputeBrakeProfile"(
-                                profile := #trajectory.profiles[0],
-                                v0 := #chainVel[0],
-                                a0 := #chainAcc[0],
-                                vMax := #input.maxVelocity[0],
-                                aMax := #input.maxAcceleration[0],
-                                jMax := #input.maxJerk[0]);
-                            #mainP0 := #chainPos[0] + #trajectory.profiles[0].brake.p[2];
-                            #mainV0 := #trajectory.profiles[0].brake.v[2];
-                            #mainA0 := #trajectory.profiles[0].brake.a[2];
-                        ELSE
-                            #trajectory.profiles[0].brake.t[0] := 0.0;
-                            #trajectory.profiles[0].brake.t[1] := 0.0;
-                            #trajectory.profiles[0].brake.j[0] := 0.0;
-                            #trajectory.profiles[0].brake.j[1] := 0.0;
-                            #trajectory.profiles[0].brake.a[0] := 0.0;
-                            #trajectory.profiles[0].brake.a[1] := 0.0;
-                            #trajectory.profiles[0].brake.a[2] := 0.0;
-                            #trajectory.profiles[0].brake.v[0] := 0.0;
-                            #trajectory.profiles[0].brake.v[1] := 0.0;
-                            #trajectory.profiles[0].brake.v[2] := 0.0;
-                            #trajectory.profiles[0].brake.p[0] := 0.0;
-                            #trajectory.profiles[0].brake.p[1] := 0.0;
-                            #trajectory.profiles[0].brake.p[2] := 0.0;
-                            #brakeDuration := 0.0;
-                            #mainP0 := #chainPos[0];
-                            #mainV0 := #chainVel[0];
-                            #mainA0 := #chainAcc[0];
-                        END_IF;
+                        // v0.9: Always compute the brake profile unconditionally
+                        // (mirrors the oracle: Ruckig always calls
+                        // get_position_brake_trajectory regardless of whether
+                        // limits are exceeded). Returns 0 when no brake is needed;
+                        // sets profile.brake.{t,j,a,v,p} and the post-brake state
+                        // in profile.brake.v[2]/a[2]/p[2].
+                        // NOTE: transpiler quirk — do NOT use "=>" VAR_OUTPUT
+                        // bindings when consuming the return value; read the
+                        // post-brake state from profile.brake (VAR_IN_OUT).
+                        #brakeDuration := "ComputeBrakeProfile"(
+                            profile := #trajectory.profiles[0],
+                            v0 := #chainVel[0],
+                            a0 := #chainAcc[0],
+                            vMax := #input.maxVelocity[0],
+                            aMax := #input.maxAcceleration[0],
+                            jMax := #input.maxJerk[0]);
+                        #mainP0 := #chainPos[0] + #trajectory.profiles[0].brake.p[2];
+                        #mainV0 := #trajectory.profiles[0].brake.v[2];
+                        #mainA0 := #trajectory.profiles[0].brake.a[2];
 
                         #profileResult := "ComputeProfile1Axis"(profile := #trajectory.profiles[0], p0 := #mainP0, v0 := #mainV0, a0 := #mainA0, pT := #input.targetPosition[0], vT := #input.targetVelocity[0], aT := #input.targetAcceleration[0], vMax := #input.maxVelocity[0], aMax := #input.maxAcceleration[0], jMax := #input.maxJerk[0]);
                         IF #profileResult <> "dbRuckigConst".RESULT_WORKING AND #profileResult <> "dbRuckigConst".RESULT_FINISHED THEN

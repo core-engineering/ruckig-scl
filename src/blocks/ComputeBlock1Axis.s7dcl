@@ -90,6 +90,45 @@ FUNCTION "ComputeBlock1Axis" : Word
             #block.bValid := false;
         END_REGION
 
+        REGION Two-step fallbacks (only if no main-family profile)
+            IF NOT #found THEN
+                "TwoStepNone"(profile := #profile, bestT := #bestT, bestDuration := #bestDuration,
+                    found := #found, bestSjMax := #bestSjMax, allDur := #allDur, allCount := #allCount,
+                    p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
+                    svMax := #vMax, svMin := -#vMax, saMax := #aMax, saMin := -#aMax, sjMax := #jMax);
+                "TwoStepNone"(profile := #profile, bestT := #bestT, bestDuration := #bestDuration,
+                    found := #found, bestSjMax := #bestSjMax, allDur := #allDur, allCount := #allCount,
+                    p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
+                    svMax := -#vMax, svMin := #vMax, saMax := -#aMax, saMin := #aMax, sjMax := -#jMax);
+                "TwoStepAcc0"(profile := #profile, bestT := #bestT, bestDuration := #bestDuration,
+                    found := #found, bestSjMax := #bestSjMax, allDur := #allDur, allCount := #allCount,
+                    p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
+                    svMax := #vMax, svMin := -#vMax, saMax := #aMax, saMin := -#aMax, sjMax := #jMax);
+                "TwoStepAcc0"(profile := #profile, bestT := #bestT, bestDuration := #bestDuration,
+                    found := #found, bestSjMax := #bestSjMax, allDur := #allDur, allCount := #allCount,
+                    p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
+                    svMax := -#vMax, svMin := #vMax, saMax := -#aMax, saMin := #aMax, sjMax := -#jMax);
+                "TwoStepVel"(profile := #profile, bestT := #bestT, bestDuration := #bestDuration,
+                    found := #found, bestSjMax := #bestSjMax, allDur := #allDur, allCount := #allCount,
+                    p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
+                    svMax := #vMax, svMin := -#vMax, saMax := #aMax, saMin := -#aMax, sjMax := #jMax);
+                "TwoStepVel"(profile := #profile, bestT := #bestT, bestDuration := #bestDuration,
+                    found := #found, bestSjMax := #bestSjMax, allDur := #allDur, allCount := #allCount,
+                    p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
+                    svMax := -#vMax, svMin := #vMax, saMax := -#aMax, saMin := #aMax, sjMax := -#jMax);
+                "TwoStepAcc1Vel"(profile := #profile, bestT := #bestT, bestDuration := #bestDuration,
+                    found := #found, bestSjMax := #bestSjMax, allDur := #allDur, allCount := #allCount,
+                    p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
+                    svMax := #vMax, svMin := -#vMax, saMax := #aMax, saMin := -#aMax, sjMax := #jMax);
+                "TwoStepAcc1Vel"(profile := #profile, bestT := #bestT, bestDuration := #bestDuration,
+                    found := #found, bestSjMax := #bestSjMax, allDur := #allDur, allCount := #allCount,
+                    p0 := #p0, v0 := #v0, a0 := #a0, pT := #pT, vT := #vT, aT := #aT,
+                    svMax := -#vMax, svMin := #vMax, saMax := -#aMax, saMin := #aMax, sjMax := -#jMax);
+                #block.tMin  := #bestDuration;
+                #block.found := #found;
+            END_IF;
+        END_REGION
+
         REGION Fail if no profile
             IF NOT #found THEN
                 #ComputeBlock1Axis := "dbRuckigConst".RESULT_ERR_SOLVER;
