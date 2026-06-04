@@ -1,0 +1,11 @@
+name: v0.9 step1 two-step gap state 3
+n_dofs: 1
+current_velocity: [2.79]
+current_acceleration: [2.615]
+target_position: [2.404]
+target_velocity: [-1.29]
+target_acceleration: [1.672]
+max_velocity: [3.0]
+max_acceleration: [5.0]
+max_jerk: [10.0]
+cycle_time: 0.010
