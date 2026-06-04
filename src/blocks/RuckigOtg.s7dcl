@@ -48,7 +48,7 @@ FUNCTION_BLOCK "RuckigOtg"
         mainA0 : LReal;
         // duration accumulation
         mainDuration : LReal;
-        brakeDur     : Array[0..3] of LReal;   // per-axis brake duration (multi-axis path)
+        brakeDur     : Array[0..3] of LReal;   // per-axis brake duration (multi-axis flow; cf. scalar brakeDuration for single-axis)
         i            : DInt;
         // already-at-target degenerate guard
         atTarget : Bool;
@@ -618,6 +618,7 @@ FUNCTION_BLOCK "RuckigOtg"
                             FOR #i := 0 TO 6 DO
                                 #axDur := #axDur + #trajectory.profiles[#ax].t[#i];
                             END_FOR;
+                            // tMin already includes brakeDur[ax] (folded in the Block loop above)
                             IF #participates[#ax] THEN
                                 #trajectory.independentMinDurations[#ax] := #blockSet.items[#ax].tMin;
                             ELSE
