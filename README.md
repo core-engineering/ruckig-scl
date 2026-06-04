@@ -4,9 +4,24 @@ A Siemens SCL (Structured Text) port of the [Ruckig](https://github.com/pantor/r
 Online Trajectory Generation library, for S7-1500 PLCs. MIT-licensed (same as
 upstream Ruckig).
 
-**Status: v0.9.0 — step1 completeness: the four two-step fallback families close the
-~3% `RESULT_ERR_SOLVER` gap on arbitrary single-axis states. Builds on v0.8's
-multi-axis brake pre-phase.**
+**Status: v0.10.0 — step2 parity-complete: `SolveTimedVel` cubic + extrema-seeding
+and structural `ReachedLimits` guards close the last known shape-parity gap (1.7% → 0).
+Builds on v0.9's step1 two-step fallbacks.**
+
+## Features (v0.10)
+
+- **`SolveTimedVel` root precision** — Added the oracle's all-zero-boundary exact
+  cubic branch, and replaced the dense-scan root-finding (degree-5 for UDDU, degree-6
+  for UDUD) with the oracle's **derivative-extrema seeding**: `SolveQuartic` on the
+  polynomial's derivative yields robust brackets → `ShrinkInterval` → Newton. The
+  velocity-plateau root now resolves to ≤ 1e-9 (previously ~2e-5, which failed
+  `CheckProfile`'s 1e-6 tolerance and let a later family mask VEL).
+- **Structural `ReachedLimits` guards** — The limit-reaching step2 families now
+  require their defining plateau (`t[3] ≥ ε` for the velocity families, `t[1] ≥ ε`
+  for ACC0, `t[5] ≥ ε` for ACC1, both for ACC0_ACC1), matching Ruckig's `check<>` —
+  so a structurally-degenerate profile can no longer be greedily accepted ahead of
+  the correct family. Together these two fixes close the last known step2 shape-parity
+  gap: ~1.7% divergence → 0 over the broad fuzz corpus.
 
 ## Features (v0.9)
 
@@ -102,7 +117,7 @@ multi-axis brake pre-phase.**
   agrees to the floating-point floor (~1e-15) across all profile families;
   cyclic rest-to-rest / zero-target-velocity parity holds to 1e-6
 
-### Known limitations (v0.9)
+### Known limitations (v0.10)
 
 - **Per-DoF `Phase` mixes are not supported.** A `Phase` per-DoF entry is
   silently treated as `Time`; `Phase` is a global-only mode (matches Ruckig,
@@ -114,9 +129,6 @@ multi-axis brake pre-phase.**
 - **Phase + out-of-limits initial state falls back to Time** (which brakes
   correctly); it does not reproduce Ruckig's Phase-on-post-brake trajectory.
   Phase with an in-limits initial state is unchanged.
-- **step2 short-move-stretched divergence** — when a small displacement is
-  re-timed to a much larger `tf`, the solver returns a valid-but-different profile
-  shape compared to Ruckig. Deferred to the next version.
 
 Resolved earlier: moving targets match Ruckig to ~1e-15 on **every** cycle
 (v0.2.1), and the over-`vMax` first-enable brake seed is now C1-continuous
@@ -158,7 +170,8 @@ design specs under [docs/superpowers/specs/](docs/superpowers/specs/)
 `2026-06-03-ruckig-scl-v0.6-design.md` for v0.6,
 `2026-06-04-ruckig-scl-v0.7-design.md` for v0.7,
 `2026-06-04-ruckig-scl-v0.8-design.md` for v0.8,
-`2026-06-04-ruckig-scl-v0.9-design.md` for v0.9).
+`2026-06-04-ruckig-scl-v0.9-design.md` for v0.9,
+`2026-06-04-ruckig-scl-v0.10-design.md` for v0.10).
 
 ## How it was ported
 
@@ -278,7 +291,7 @@ uv sync                       # core deps (offline-installable)
 uv run pytest tests/unit      # unit tests
 
 uv sync --extra parity        # adds the Ruckig reference (PyPI: ruckig)
-uv run pytest tests/parity    # 59 cross-implementation parity scenarios
+uv run pytest tests/parity    # 64 cross-implementation parity scenarios
 ```
 
 ## Roadmap
@@ -293,8 +306,9 @@ uv run pytest tests/parity    # 59 cross-implementation parity scenarios
 | v0.6 | Per-DoF synchronization, TimeIfNecessary, discrete duration |
 | v0.7 | Velocity interface |
 | v0.8 | Multi-axis brake pre-phase |
-| v0.9 | step1 two-step fallbacks — closes ~3% `RESULT_ERR_SOLVER` gap *(this release)* |
-| v1.0 (next) | step2 completeness (short-move-stretched divergence fix) |
+| v0.9 | step1 two-step fallbacks — closes ~3% `RESULT_ERR_SOLVER` gap |
+| v0.10 | step2 parity-complete: `SolveTimedVel` precision + structural guards *(this release)* |
+| v1.0 (next) | Performance tuning + field validation (pre-1.0) |
 
 ## License
 

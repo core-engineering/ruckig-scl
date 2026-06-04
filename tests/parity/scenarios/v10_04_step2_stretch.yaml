@@ -1,0 +1,8 @@
+name: v0.10 step2 stretched large displacement
+n_dofs: 1
+target_position: [5.0]
+max_velocity: [3.0]
+max_acceleration: [5.0]
+max_jerk: [10.0]
+minimum_duration: 20.0
+cycle_time: 0.010
