@@ -1,0 +1,8 @@
+name: v0.8 2-DoF time-sync with an out-of-limit initial velocity (braked axis limits)
+n_dofs: 2
+current_velocity: [5.0, 0.0]
+target_position: [10.0, 1.0]
+max_velocity: [2.0, 2.0]
+max_acceleration: [5.0, 5.0]
+max_jerk: [10.0, 10.0]
+cycle_time: 0.010
