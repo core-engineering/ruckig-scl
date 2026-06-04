@@ -110,6 +110,70 @@ design specs under [docs/superpowers/specs/](docs/superpowers/specs/)
 `2026-06-03-ruckig-scl-v0.5-design.md` for v0.5,
 `2026-06-03-ruckig-scl-v0.6-design.md` for v0.6).
 
+## How it was ported
+
+ruckig-scl is a **faithful re-derivation** of Ruckig's algorithms in SCL, not a
+mechanical line-by-line translation. The upstream C++ is the reference;
+correctness is established **numerically against the real Ruckig solver** rather
+than by visual code matching.
+
+### Approach
+
+- **Hybrid: paper-first + C++ reference + parity bench.** Each profile family and
+  synchronization mode is re-derived from the kinematics, cross-checked against
+  the corresponding Ruckig C++ source, then pinned cycle-by-cycle to the official
+  solver. This keeps the SCL idiomatic and readable while every result stays
+  anchored to the C++ oracle.
+- **MIT throughout**, matching upstream — usable in industrial / OEM contexts
+  where the GPLv3 Struckig port cannot be.
+
+### Mapping C++ → SCL
+
+| Ruckig (C++) | ruckig-scl (SCL) |
+|---|---|
+| `Ruckig<DOF>` class + persistent state | single stateful FB `RuckigOtg` (one implicit cyclic call, no `METHOD`s — idiomatic Siemens) |
+| stateless step functions (Step 1 / Step 2, sync, evaluate) | pure FCs (`ComputeBlock1Axis`, `Synchronize`, `ComputeProfile1Axis…`) |
+| `double` | `LREAL` throughout (bit-for-bit parity with C++ `double`) |
+| `std::array<…, DOF>`, template `DOF` | fixed `ARRAY[0..DOF_MAX-1]`, `DOF_MAX = 4` (SCL requires static array sizing) |
+| `enum` (`Synchronization`, `ControlInterface`, …) | typed `INT` constants in `dbRuckigConst` (Siemens ENUMs would need Software Units) |
+| `std::optional` / exceptions | DA014 `WORD` status codes + validity flags |
+| Cardano / Ferrari / Newton root finders | `SolveCubic` / `SolveQuartic` FCs + safe-Newton `PolyEval` + `ShrinkInterval` |
+
+### How correctness is established
+
+The SCL blocks are **transpiled to Python** by the
+[`siemens-plc-tools`](https://github.com/core-engineering/siemens-plc-tools)
+`plc-code` engine (an SCL → Python executor), so the *actual* block source runs
+in the test harness — there is no separate reimplementation to drift. Two layers:
+
+- **Unit tests** (`tests/unit`) — every FC in isolation: the root solvers, the
+  input validator, the per-axis reachable-duration `Block`, the synchronizer, …
+- **Numerical parity** (`tests/parity`) — each YAML scenario runs through *both*
+  the real Ruckig (PyPI `ruckig`) reference *and* the transpiled SCL, compared
+  cycle-by-cycle. The static single-DoF solver matches to the **floating-point
+  floor (~1e-15)**; full cyclic trajectories match to **1e-6**.
+
+### Development workflow
+
+Built **one version at a time**, each as a *spec → plan → test-first
+implementation → review* cycle, then merged and tagged (`v0.1.0` … `v0.6.0`).
+Tests are written before the SCL block and must pass against the Ruckig oracle
+before a version ships. The per-version design specs live under
+[docs/superpowers/specs/](docs/superpowers/specs/) and the implementation plans
+under [docs/superpowers/plans/](docs/superpowers/plans/); see also
+[CHANGELOG.md](CHANGELOG.md).
+
+### SCL realities that shaped the code
+
+Porting surfaced several SCL / transpiler constraints that the code deliberately
+works around (catalogued in
+[docs/PLC_CODE_LIMITATIONS.md](docs/PLC_CODE_LIMITATIONS.md)): no division by a
+parenthesized product (denominators are precomputed into a scalar), identifiers
+ending in `of` get mis-lexed (so axis indices use `ax` / `refAx`), `END_IF` /
+`END_FOR` must sit on their own line, an array-of-UDT is wrapped in a `STRUCT` to
+pass as an FC parameter, and so on. These keep the source both transpiler-clean
+and valid for TIA Portal.
+
 ## Target platform
 
 - TIA Portal V18 or later
