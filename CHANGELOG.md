@@ -3,6 +3,36 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-06-04
+
+### Added
+- **Velocity control interface** (`controlInterface = IFACE_VELOCITY`,
+  third-order). Drives the velocity state `(v0, a0) -> (vf, af)` jerk-limited
+  under the acceleration/jerk limits; position is uncontrolled (integrated and
+  output, not targeted), `maxVelocity` is ignored (Ruckig parity).
+- New FCs: `ComputeVelBlock1Axis` (Step 1 -> Block), `ComputeVelProfileTimed`
+  (Step 2 re-time), `CheckVelProfile` (velocity validity), plus the internal
+  direction helpers `CollectVelStep1Dir` and `SolveVelTimedDir`.
+- Wired through the existing multi-axis flow: single-axis plus Time / No /
+  per-DoF / TimeIfNecessary / Discrete synchronization all work for velocity.
+- `ValidateInput` velocity-mode rules and `RESULT_ERR_IFACE` (16#8208) for an
+  out-of-range `controlInterface`.
+- 9 velocity parity scenarios (`v07_01`..`v07_09`), including an out-of-limit
+  initial-acceleration case (the velocity Step-1 solver absorbs an arbitrary `a0`).
+
+### Known limitations
+- **Velocity + Phase synchronization falls back to Time** and does NOT match
+  Ruckig, which genuinely phase-syncs the velocity interface (scales each axis's
+  profile by the velocity-delta ratio for straight-line motion in velocity
+  space). Faithful velocity-Phase is deferred. All other velocity sync modes
+  (Time / No / per-DoF / TimeIfNecessary / Discrete) match the oracle.
+
+### Notes
+- Second-order (jerk-unlimited) velocity interface is out of scope; the port is
+  third-order throughout.
+- No brake pre-phase in velocity mode (the Step-1 solver absorbs an arbitrary
+  `a0`).
+
 ## [0.6.0] - 2026-06-03
 
 Multi-axis synchronization completeness, on top of v0.5.
@@ -252,6 +282,7 @@ out-of-limits first enable. Builds on the v0.1 FB/UDT layer.
   returns `RESULT_ERR_SOLVER` if ever required): the zero-limits special case
   and the two-step fallbacks (`time_*_two_step`).
 
+[0.7.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.7.0
 [0.6.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.6.0
 [0.5.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.5.0
 [0.4.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.4.0

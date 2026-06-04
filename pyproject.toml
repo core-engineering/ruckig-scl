@@ -1,6 +1,6 @@
 [project]
 name = "ruckig-scl-tests"
-version = "0.6.0"
+version = "0.7.0"
 description = "Test bench for ruckig-scl SCL implementation"
 requires-python = ">=3.12"
 dependencies = [

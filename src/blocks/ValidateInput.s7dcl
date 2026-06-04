@@ -3,7 +3,7 @@
     S7_EditorMode := "SCL";
     S7_Family := "Ruckig";
     S7_Optimized := "TRUE";
-    S7_Version := "0.2.0"
+    S7_Version := "0.7.0"
 }
 FUNCTION "ValidateInput" : Word
     VAR_IN_OUT
@@ -32,9 +32,24 @@ FUNCTION "ValidateInput" : Word
             END_IF;
         END_REGION
 
+        REGION controlInterface range check
+            // IFACE_POSITION=0, IFACE_VELOCITY=1; reject anything outside {0,1}.
+            // Note: "dbRuckigConst".IFACE_* constants cannot be used here due to a
+            // transpiler quirk (identifier starting with "IF" is mis-tokenised as
+            // the IF keyword).  Literal values are equivalent in both SCL and the
+            // test bench, and the constants remain the authoritative definition in
+            // dbRuckigConst.
+            IF #input.controlInterface <> 0 AND #input.controlInterface <> 1 THEN
+                #ValidateInput := "dbRuckigConst".RESULT_ERR_IFACE;
+                RETURN;
+            END_IF;
+        END_REGION
+
         REGION Per-axis validation
             FOR #i := 0 TO #input.nDofs - 1 DO
-                // Finite-value checks (calls the IsFiniteLreal sub-block)
+                // Finiteness: currentPosition is the integration origin in both
+                // interfaces; targetPosition is only used (and only required
+                // finite) in the position interface (controlInterface = 0).
                 IF NOT "IsFiniteLreal"(x := #input.currentPosition[#i]) THEN
                     #ValidateInput := "dbRuckigConst".RESULT_ERR_NON_FINITE;
                     RETURN;
@@ -47,9 +62,11 @@ FUNCTION "ValidateInput" : Word
                     #ValidateInput := "dbRuckigConst".RESULT_ERR_NON_FINITE;
                     RETURN;
                 END_IF;
-                IF NOT "IsFiniteLreal"(x := #input.targetPosition[#i]) THEN
-                    #ValidateInput := "dbRuckigConst".RESULT_ERR_NON_FINITE;
-                    RETURN;
+                IF #input.controlInterface = 0 THEN
+                    IF NOT "IsFiniteLreal"(x := #input.targetPosition[#i]) THEN
+                        #ValidateInput := "dbRuckigConst".RESULT_ERR_NON_FINITE;
+                        RETURN;
+                    END_IF;
                 END_IF;
                 IF NOT "IsFiniteLreal"(x := #input.targetVelocity[#i]) THEN
                     #ValidateInput := "dbRuckigConst".RESULT_ERR_NON_FINITE;
@@ -60,10 +77,14 @@ FUNCTION "ValidateInput" : Word
                     RETURN;
                 END_IF;
 
-                // Positive limit checks
-                IF #input.maxVelocity[#i] <= 0.0 THEN
-                    #ValidateInput := "dbRuckigConst".RESULT_ERR_VMAX;
-                    RETURN;
+                // Positive limits: vMax is a constraint only in the position
+                // interface (controlInterface = 0); the velocity interface
+                // ignores it (Ruckig parity).
+                IF #input.controlInterface = 0 THEN
+                    IF #input.maxVelocity[#i] <= 0.0 THEN
+                        #ValidateInput := "dbRuckigConst".RESULT_ERR_VMAX;
+                        RETURN;
+                    END_IF;
                 END_IF;
                 IF #input.maxAcceleration[#i] <= 0.0 THEN
                     #ValidateInput := "dbRuckigConst".RESULT_ERR_AMAX;
@@ -75,11 +96,7 @@ FUNCTION "ValidateInput" : Word
                 END_IF;
 
                 // NOTE: the current state (velocity/acceleration) is deliberately
-                // NOT required to be within limits. Like Ruckig's validate()
-                // (check_current_state_within_limits = false by default), an
-                // out-of-limits initial state is admissible: the RuckigOtg FB
-                // prepends a brake pre-phase to bring it back inside limits.
-                // Only finiteness and positive limit magnitudes are enforced.
+                // NOT required to be within limits (Ruckig validate() default).
             END_FOR;
         END_REGION
 

@@ -148,3 +148,48 @@ def test_non_finite_target_acceleration_returns_err(harness):
     inp = make_valid_input()
     inp["targetAcceleration"] = [math.nan, 0.0, 0.0, 0.0]
     assert _call(harness, inp) == RESULT_ERR_NON_FINITE
+
+
+RESULT_ERR_IFACE = 0x8208
+
+
+def test_velocity_mode_accepts_zero_vmax(harness):
+    inp = make_valid_input()
+    inp["controlInterface"] = 1
+    inp["maxVelocity"] = [0.0, 0.0, 0.0, 0.0]   # ignored in velocity mode
+    inp["targetVelocity"] = [1.0, 0.0, 0.0, 0.0]
+    assert _call(harness, inp) == RESULT_WORKING
+
+
+def test_velocity_mode_ignores_nonfinite_target_position(harness):
+    inp = make_valid_input()
+    inp["controlInterface"] = 1
+    inp["targetPosition"] = [math.inf, 0.0, 0.0, 0.0]   # ignored in velocity mode
+    assert _call(harness, inp) == RESULT_WORKING
+
+
+def test_velocity_mode_requires_amax(harness):
+    inp = make_valid_input()
+    inp["controlInterface"] = 1
+    inp["maxAcceleration"] = [0.0, 5.0, 5.0, 5.0]
+    assert _call(harness, inp) == RESULT_ERR_AMAX
+
+
+def test_velocity_mode_requires_jmax(harness):
+    inp = make_valid_input()
+    inp["controlInterface"] = 1
+    inp["maxJerk"] = [0.0, 10.0, 10.0, 10.0]
+    assert _call(harness, inp) == RESULT_ERR_JMAX
+
+
+def test_velocity_mode_rejects_nonfinite_target_velocity(harness):
+    inp = make_valid_input()
+    inp["controlInterface"] = 1
+    inp["targetVelocity"] = [math.nan, 0.0, 0.0, 0.0]
+    assert _call(harness, inp) == RESULT_ERR_NON_FINITE
+
+
+def test_invalid_control_interface_rejected(harness):
+    inp = make_valid_input()
+    inp["controlInterface"] = 7
+    assert _call(harness, inp) == RESULT_ERR_IFACE

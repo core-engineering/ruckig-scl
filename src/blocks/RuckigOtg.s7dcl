@@ -3,7 +3,7 @@
     S7_EditorMode := "SCL";
     S7_Family := "Ruckig";
     S7_Optimized := "TRUE";
-    S7_Version := "0.6.0"
+    S7_Version := "0.7.0"
 }
 FUNCTION_BLOCK "RuckigOtg"
     VAR_INPUT
@@ -174,6 +174,9 @@ FUNCTION_BLOCK "RuckigOtg"
                 IF #input.durationDiscretization <> #prevInput.durationDiscretization THEN
                     #recomputeRequired := true;
                 END_IF;
+                IF #input.controlInterface <> #prevInput.controlInterface THEN
+                    #recomputeRequired := true;
+                END_IF;
                 FOR #ax := 0 TO #nd - 1 DO
                     IF #input.perDofSynchronization[#ax] <> #prevInput.perDofSynchronization[#ax] THEN
                         #recomputeRequired := true;
@@ -184,6 +187,135 @@ FUNCTION_BLOCK "RuckigOtg"
 
         REGION Recompute trajectory
             IF #recomputeRequired THEN
+                // IFACE_VELOCITY = 1. Literal used because the transpiler mis-lexes
+                // any identifier starting with "IF" (so "dbRuckigConst".IFACE_VELOCITY
+                // is unusable here); see dbRuckigConst for the authoritative constant.
+                IF #input.controlInterface = 1 THEN
+                    //====================================================
+                    // VELOCITY INTERFACE PATH (v0.7) — all DoF counts
+                    //====================================================
+                    // 1. resolve effective mode + participation per axis
+                    //    (Phase -> Time; velocity has no phase sync)
+                    FOR #ax := 0 TO #nd - 1 DO
+                        IF #input.perDofSynchronization[#ax] >= 0 THEN
+                            #modeEff[#ax] := #input.perDofSynchronization[#ax];
+                        ELSE
+                            #modeEff[#ax] := #input.synchronization;
+                        END_IF;
+                        IF #modeEff[#ax] = "dbRuckigConst".SYNC_PHASE THEN
+                            #modeEff[#ax] := "dbRuckigConst".SYNC_TIME;
+                        END_IF;
+                        #participates[#ax] := #modeEff[#ax] <> "dbRuckigConst".SYNC_NONE;
+                    END_FOR;
+
+                    // 2. Block every axis (No axes' tMin still sets the t_sync floor)
+                    FOR #ax := 0 TO #nd - 1 DO
+                        #blockResult := "ComputeVelBlock1Axis"(
+                            block := #blockSet.items[#ax],
+                            profile := #trajectory.profiles[#ax],
+                            p0 := #chainPos[#ax], v0 := #chainVel[#ax], a0 := #chainAcc[#ax],
+                            vf := #input.targetVelocity[#ax],
+                            af := #input.targetAcceleration[#ax],
+                            aMax := #input.maxAcceleration[#ax],
+                            jMax := #input.maxJerk[#ax]);
+                        IF #blockResult <> "dbRuckigConst".RESULT_WORKING THEN
+                            #valid := false;
+                            #busy := false;
+                            #done := false;
+                            #error := true;
+                            #status := "dbRuckigConst".RESULT_ERR_TRAJ;
+                            #trajectory.isValid := false;
+                            RETURN;
+                        END_IF;
+                    END_FOR;
+
+                    // 3. t_sync over participating axes (+ discrete; minimumDuration honoured via Synchronize)
+                    #isDiscrete := #input.durationDiscretization = "dbRuckigConst".DISC_DISCRETE;
+                    "Synchronize"(
+                        blockSet := #blockSet,
+                        nDofs := #nd,
+                        minimumDuration := #input.minimumDuration,
+                        participates := #participates,
+                        discrete := #isDiscrete,
+                        cycleTime := #cycleTime,
+                        resolved => #syncOk,
+                        tSync => #tSync,
+                        limitingAxis => #limitingAxis);
+                    IF NOT #syncOk THEN
+                        #valid := false;
+                        #busy := false;
+                        #done := false;
+                        #error := true;
+                        #status := "dbRuckigConst".RESULT_ERR_SYNC;
+                        #trajectory.isValid := false;
+                        RETURN;
+                    END_IF;
+
+                    // 4. emit per axis — velocity interface has no at-target
+                    //    degenerate shortcut: the target velocity may be non-zero,
+                    //    so "arrived" is not a useful concept. ComputeVelProfileTimed
+                    //    always re-solves to tf (its trivial time_none case coasts an
+                    //    already-at-target axis at constant velocity for tf).
+                    #mainDuration := 0.0;
+                    FOR #ax := 0 TO #nd - 1 DO
+                        #trajectory.profiles[#ax].brake.t[0] := 0.0;
+                        #trajectory.profiles[#ax].brake.t[1] := 0.0;
+                        #trajectory.profiles[#ax].brake.j[0] := 0.0;
+                        #trajectory.profiles[#ax].brake.j[1] := 0.0;
+                        #trajectory.profiles[#ax].brake.a[0] := 0.0;
+                        #trajectory.profiles[#ax].brake.a[1] := 0.0;
+                        #trajectory.profiles[#ax].brake.a[2] := 0.0;
+                        #trajectory.profiles[#ax].brake.v[0] := 0.0;
+                        #trajectory.profiles[#ax].brake.v[1] := 0.0;
+                        #trajectory.profiles[#ax].brake.v[2] := 0.0;
+                        #trajectory.profiles[#ax].brake.p[0] := 0.0;
+                        #trajectory.profiles[#ax].brake.p[1] := 0.0;
+                        #trajectory.profiles[#ax].brake.p[2] := 0.0;
+
+                        #tinMoving := #modeEff[#ax] = "dbRuckigConst".SYNC_TIME;
+                        IF #modeEff[#ax] = "dbRuckigConst".SYNC_TIME_IF_NECESSARY THEN
+                            IF ABS(#input.targetVelocity[#ax]) > "dbRuckigConst".EPS_VELOCITY
+                                OR ABS(#input.targetAcceleration[#ax]) > "dbRuckigConst".EPS_DERIV THEN
+                                #tinMoving := true;
+                            END_IF;
+                        END_IF;
+
+                        IF #tinMoving THEN
+                            #axDur := #tSync;
+                        ELSE
+                            #axDur := #blockSet.items[#ax].tMin;
+                        END_IF;
+
+                        #profileResult := "ComputeVelProfileTimed"(
+                            profile := #trajectory.profiles[#ax],
+                            p0 := #chainPos[#ax], v0 := #chainVel[#ax], a0 := #chainAcc[#ax],
+                            vf := #input.targetVelocity[#ax],
+                            af := #input.targetAcceleration[#ax],
+                            aMax := #input.maxAcceleration[#ax],
+                            jMax := #input.maxJerk[#ax],
+                            tf := #axDur);
+                        IF #profileResult <> "dbRuckigConst".RESULT_WORKING AND #profileResult <> "dbRuckigConst".RESULT_FINISHED THEN
+                            #valid := false;
+                            #busy := false;
+                            #done := false;
+                            #error := true;
+                            #status := "dbRuckigConst".RESULT_ERR_TRAJ;
+                            #trajectory.isValid := false;
+                            RETURN;
+                        END_IF;
+
+                        IF #participates[#ax] THEN
+                            #trajectory.independentMinDurations[#ax] := #blockSet.items[#ax].tMin;
+                        ELSE
+                            #trajectory.independentMinDurations[#ax] := #axDur;
+                        END_IF;
+                        IF #axDur > #mainDuration THEN
+                            #mainDuration := #axDur;
+                        END_IF;
+                    END_FOR;
+                    #trajectory.duration := #mainDuration;
+
+                ELSE
                 //========================================================
                 // SINGLE-AXIS PATH (1 DoF, no minimumDuration) -> v0.3 stack
                 //========================================================
@@ -472,6 +604,8 @@ FUNCTION_BLOCK "RuckigOtg"
                         #trajectory.duration := #mainDuration;
                         #syncHandled := true;
                     END_IF;
+                END_IF;
+                // END_IF for controlInterface = 1 (velocity) ELSE (position)
                 END_IF;
 
                 #trajectory.currentTime := 0.0;

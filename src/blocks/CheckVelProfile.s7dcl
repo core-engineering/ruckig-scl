@@ -1,0 +1,106 @@
+{
+    S7_Author := "Camille Martin";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.7.0"
+}
+FUNCTION "CheckVelProfile" : Bool
+    VAR_IN_OUT
+        profile : _.typeProfile;
+    END_VAR
+    VAR_INPUT
+        p0   : LReal;
+        v0   : LReal;
+        a0   : LReal;
+        vf   : LReal;
+        af   : LReal;
+        aMax : LReal;
+        tf   : LReal;
+    END_VAR
+    VAR_TEMP
+        i    : DInt;
+        sumT : LReal;
+    END_VAR
+    VAR CONSTANT
+        EPS_TIME   : LReal := 1.0E-9;
+        EPS_LIMIT  : LReal := 1.0E-7;
+        EPS_TARGET : LReal := 1.0E-6;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      CheckVelProfile
+            // Function:   Validate a candidate velocity-interface profile:
+            //             phase times >= 0, |a| <= aMax, and reaching the
+            //             velocity target (vf, af). Position is integrated for
+            //             the output but NOT constrained (Ruckig velocity
+            //             interface). Optional imposed-duration check (Step 2).
+            // Family:     Ruckig
+            // Author:     Camille Martin
+            // Ref:        ruckig/include/ruckig/profile.hpp check_for_velocity
+            //==========================================================
+        END_REGION
+
+        REGION Integrate states from initial condition
+            "IntegrateProfileStates"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0);
+        END_REGION
+
+        REGION Phase times non negative
+            FOR #i := 0 TO 6 DO
+                IF #profile.t[#i] < -#EPS_TIME THEN
+                    #CheckVelProfile := false;
+                    RETURN;
+                END_IF;
+            END_FOR;
+        END_REGION
+
+        REGION Acceleration limits (interior boundaries only)
+            // Ruckig check_for_velocity (profile.hpp) limits ONLY the interior
+            // boundary accelerations a[1], a[3], a[5]. a[0]=a0 is deliberately NOT
+            // limit-checked (an out-of-aMax initial acceleration is admissible; the
+            // solver absorbs it), and a[7]=af is pinned by the velocity-target check
+            // below, not by the limit check.
+            IF ABS(#profile.a[1]) > #aMax + #EPS_LIMIT THEN
+                #CheckVelProfile := false;
+                RETURN;
+            END_IF;
+            IF ABS(#profile.a[3]) > #aMax + #EPS_LIMIT THEN
+                #CheckVelProfile := false;
+                RETURN;
+            END_IF;
+            IF ABS(#profile.a[5]) > #aMax + #EPS_LIMIT THEN
+                #CheckVelProfile := false;
+                RETURN;
+            END_IF;
+        END_REGION
+
+        REGION Reaches velocity target (position NOT checked)
+            IF ABS(#profile.v[7] - #vf) > #EPS_TARGET THEN
+                #CheckVelProfile := false;
+                RETURN;
+            END_IF;
+            IF ABS(#profile.a[7] - #af) > #EPS_TARGET THEN
+                #CheckVelProfile := false;
+                RETURN;
+            END_IF;
+        END_REGION
+
+        REGION Imposed duration (Step 2)
+            IF #tf >= 0.0 THEN
+                #sumT := 0.0;
+                FOR #i := 0 TO 6 DO
+                    #sumT := #sumT + #profile.t[#i];
+                END_FOR;
+                IF ABS(#sumT - #tf) > #EPS_TIME THEN
+                    #CheckVelProfile := false;
+                    RETURN;
+                END_IF;
+            END_IF;
+        END_REGION
+
+        #CheckVelProfile := true;
+    END_NETWORK
+END_FUNCTION

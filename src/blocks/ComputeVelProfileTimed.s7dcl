@@ -1,0 +1,69 @@
+{
+    S7_Author := "Camille Martin";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.7.0"
+}
+FUNCTION "ComputeVelProfileTimed" : Word
+    VAR_IN_OUT
+        profile : _.typeProfile;
+    END_VAR
+    VAR_INPUT
+        p0   : LReal;
+        v0   : LReal;
+        a0   : LReal;
+        vf   : LReal;
+        af   : LReal;
+        aMax : LReal;
+        jMax : LReal;
+        tf   : LReal;
+    END_VAR
+    VAR_TEMP
+        found : Bool;
+        vd    : LReal;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Block header
+            //==========================================================
+            // Title:      ComputeVelProfileTimed
+            // Function:   Single-DoF velocity Step-2 solver. Re-times the
+            //             velocity move (v0,a0)->(vf,af) to an imposed duration
+            //             tf via SolveVelTimedDir in both directions (sign of vd
+            //             first), then integrates the winner. tf = block.tMin
+            //             reproduces the time-optimal profile.
+            // Note:       Identifier ends in "Timed" (no trailing "of"/"Dof").
+            // Family:     Ruckig
+            // Author:     Camille Martin
+            // Ref:        ruckig/src/ruckig/velocity_third_step2.cpp
+            //==========================================================
+        END_REGION
+
+        REGION Try both directions (sign of vd first)
+            #found := false;
+            #vd := #vf - #v0;
+            IF #vd > 0.0 THEN
+                "SolveVelTimedDir"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0,
+                    vf := #vf, af := #af, saMax := #aMax, sjMax := #jMax, tf := #tf);
+                "SolveVelTimedDir"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0,
+                    vf := #vf, af := #af, saMax := -#aMax, sjMax := -#jMax, tf := #tf);
+            ELSE
+                "SolveVelTimedDir"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0,
+                    vf := #vf, af := #af, saMax := -#aMax, sjMax := -#jMax, tf := #tf);
+                "SolveVelTimedDir"(profile := #profile, found := #found, p0 := #p0, v0 := #v0, a0 := #a0,
+                    vf := #vf, af := #af, saMax := #aMax, sjMax := #jMax, tf := #tf);
+            END_IF;
+        END_REGION
+
+        REGION Finalise
+            IF #found THEN
+                "IntegrateProfileStates"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0);
+                #ComputeVelProfileTimed := "dbRuckigConst".RESULT_WORKING;
+            ELSE
+                #ComputeVelProfileTimed := "dbRuckigConst".RESULT_ERR_SOLVER;
+            END_IF;
+        END_REGION
+    END_NETWORK
+END_FUNCTION

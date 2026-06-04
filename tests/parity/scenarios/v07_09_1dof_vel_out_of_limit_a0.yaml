@@ -1,0 +1,10 @@
+name: v0.7 1-DoF velocity with out-of-limit initial acceleration (solver absorbs a0)
+control_interface: velocity
+n_dofs: 1
+current_velocity: [0.0]
+current_acceleration: [12.0]
+target_velocity: [1.0]
+max_velocity: [3.0]
+max_acceleration: [5.0]
+max_jerk: [10.0]
+cycle_time: 0.010

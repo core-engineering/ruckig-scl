@@ -44,12 +44,14 @@ def run_scl(
     synchronization: int = 2,
     per_dof_synchronization: list | None = None,
     duration_discretization: int = 0,
+    control_interface: int | str = 0,
     max_cycles: int = 2000,
 ) -> TrajectoryTrace:
     """Run the SCL RuckigOtg FB cycle by cycle via the plc-code harness."""
     runtime = PLCRuntime(block_search_paths=list(SEARCH_PATHS))
     harness = create_harness(FB_PATH, runtime=runtime)
 
+    iface = 1 if control_interface in (1, "velocity") else 0
     pds = (
         (list(per_dof_synchronization) + [-1] * 4)[:4]
         if per_dof_synchronization is not None
@@ -68,7 +70,7 @@ def run_scl(
         "enabled": [d < n_dofs for d in range(4)],
         "nDofs": n_dofs,
         "minimumDuration": minimum_duration,
-        "controlInterface": 0,
+        "controlInterface": iface,
         "synchronization": synchronization,
         "perDofSynchronization": pds,
         "durationDiscretization": duration_discretization,
