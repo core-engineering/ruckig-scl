@@ -3,6 +3,30 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-06-04
+
+### Added
+- **step1 two-step fallback families** (`TwoStepNone`, `TwoStepAcc0`,
+  `TwoStepVel`, `TwoStepAcc1Vel`). Ported from Ruckig's closed-form
+  `time_*_two_step`, run as a last resort (only when the three main step1
+  families find no profile), in Ruckig's interleaved-by-direction dispatch
+  order. Closes the long-standing ~3% `RESULT_ERR_SOLVER` gap on arbitrary
+  single-axis states; benefits the multi-axis Block and the v0.8 post-brake Block
+  too. New `v09_*` parity scenarios from a seeded gap-state discovery
+  (`tests/parity/discover_step1_gaps.py`).
+
+### Fixed
+- **Single-axis brake trigger** now always invokes `ComputeBrakeProfile`
+  (consistent with v0.8's multi-axis path) instead of the conditional
+  `|v0|>vMax OR |a0|>aMax`. This closes a latent gap where `v0`/`a0` are each
+  in-limit but the velocity would overshoot `vMax` mid-acceleration, which the
+  old trigger missed.
+
+### Known limitations
+- step2 short-move-stretched divergence (a valid-but-different shape vs Ruckig
+  when a small displacement is re-timed to a much larger tf) remains — next
+  version.
+
 ## [0.8.0] - 2026-06-04
 
 ### Added
@@ -306,6 +330,7 @@ out-of-limits first enable. Builds on the v0.1 FB/UDT layer.
   returns `RESULT_ERR_SOLVER` if ever required): the zero-limits special case
   and the two-step fallbacks (`time_*_two_step`).
 
+[0.9.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.9.0
 [0.8.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.8.0
 [0.7.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.7.0
 [0.6.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.6.0
