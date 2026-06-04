@@ -229,7 +229,7 @@ FUNCTION_BLOCK "RuckigOtg"
                         END_IF;
                     END_FOR;
 
-                    // 3. t_sync over participating axes (+ discrete)
+                    // 3. t_sync over participating axes (+ discrete; minimumDuration honoured via Synchronize)
                     #isDiscrete := #input.durationDiscretization = "dbRuckigConst".DISC_DISCRETE;
                     "Synchronize"(
                         blockSet := #blockSet,
@@ -251,7 +251,11 @@ FUNCTION_BLOCK "RuckigOtg"
                         RETURN;
                     END_IF;
 
-                    // 4. emit per axis (every axis re-timed via Step 2)
+                    // 4. emit per axis — velocity interface has no at-target
+                    //    degenerate shortcut: the target velocity may be non-zero,
+                    //    so "arrived" is not a useful concept. ComputeVelProfileTimed
+                    //    always re-solves to tf (its trivial time_none case coasts an
+                    //    already-at-target axis at constant velocity for tf).
                     #mainDuration := 0.0;
                     FOR #ax := 0 TO #nd - 1 DO
                         #trajectory.profiles[#ax].brake.t[0] := 0.0;
@@ -601,7 +605,7 @@ FUNCTION_BLOCK "RuckigOtg"
                         #syncHandled := true;
                     END_IF;
                 END_IF;
-                // closes IF (velocity) / ELSE (position)
+                // END_IF for controlInterface = 1 (velocity) ELSE (position)
                 END_IF;
 
                 #trajectory.currentTime := 0.0;
