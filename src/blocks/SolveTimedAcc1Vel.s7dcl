@@ -3,7 +3,7 @@
     S7_EditorMode := "SCL";
     S7_Family := "Ruckig";
     S7_Optimized := "TRUE";
-    S7_Version := "0.3.0"
+    S7_Version := "0.10.0"
 }
 FUNCTION "SolveTimedAcc1Vel" : Void
     VAR_IN_OUT
@@ -165,11 +165,13 @@ FUNCTION "SolveTimedAcc1Vel" : Void
                     #profile.j[6] := #sjMax;
                     #profile.direction := 1;
                     #profile.controlSigns := 0;
-                    #ok := "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
-                        pT := #pT, vT := #vT, aT := #aT, vMax := #vMaxMag, aMax := #aMaxMag, tf := #tf);
-                    IF #ok THEN
-                        #found := true;
-                        RETURN;
+                    IF #profile.t[3] >= 1.0E-9 THEN
+                        #ok := "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                            pT := #pT, vT := #vT, aT := #aT, vMax := #vMaxMag, aMax := #aMaxMag, tf := #tf);
+                        IF #ok THEN
+                            #found := true;
+                            RETURN;
+                        END_IF;
                     END_IF;
                 END_IF;
             END_FOR;
@@ -218,11 +220,13 @@ FUNCTION "SolveTimedAcc1Vel" : Void
                     #profile.j[6] := -#sjMax;
                     #profile.direction := 1;
                     #profile.controlSigns := 1;
-                    #ok := "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
-                        pT := #pT, vT := #vT, aT := #aT, vMax := #vMaxMag, aMax := #aMaxMag, tf := #tf);
-                    IF #ok THEN
-                        #found := true;
-                        RETURN;
+                    IF #profile.t[3] >= 1.0E-9 THEN
+                        #ok := "CheckProfile"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0,
+                            pT := #pT, vT := #vT, aT := #aT, vMax := #vMaxMag, aMax := #aMaxMag, tf := #tf);
+                        IF #ok THEN
+                            #found := true;
+                            RETURN;
+                        END_IF;
                     END_IF;
                 END_IF;
             END_FOR;
