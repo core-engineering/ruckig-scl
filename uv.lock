@@ -999,7 +999,7 @@ sdist = { url = "https://files.pythonhosted.org/packages/ba/6f/df330ab4a80622872
 
 [[package]]
 name = "ruckig-scl-tests"
-version = "0.7.0"
+version = "0.8.0"
 source = { virtual = "." }
 dependencies = [
     { name = "numpy" },
