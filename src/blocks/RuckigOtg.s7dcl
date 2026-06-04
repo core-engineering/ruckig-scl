@@ -40,7 +40,6 @@ FUNCTION_BLOCK "RuckigOtg"
         ax                : Int;       // DoF loop index
         multiPath         : Bool;      // multi-axis / minimumDuration path
         // brake pre-phase scratch (single-axis path)
-        brakeNeeded   : Bool;
         brakeDuration : LReal;
         // main solve seed state (post-brake)
         mainP0 : LReal;
