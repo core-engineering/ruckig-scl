@@ -24,6 +24,7 @@ DATA_BLOCK dbRuckigConst
         RESULT_ERR_TRAJ       : Word  := 16#8601;
         RESULT_ERR_SOLVER     : Word  := 16#8602;
         RESULT_ERR_SYNC       : Word  := 16#8603;
+        RESULT_ERR_IFACE      : Word  := 16#8208;
 
         SYNC_NONE              : Int := 0;
         SYNC_PHASE             : Int := 1;
