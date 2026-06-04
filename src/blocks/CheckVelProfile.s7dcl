@@ -57,13 +57,24 @@ FUNCTION "CheckVelProfile" : Bool
             END_FOR;
         END_REGION
 
-        REGION Acceleration limits (velocity interface: no vMax)
-            FOR #i := 0 TO 7 DO
-                IF ABS(#profile.a[#i]) > #aMax + #EPS_LIMIT THEN
-                    #CheckVelProfile := false;
-                    RETURN;
-                END_IF;
-            END_FOR;
+        REGION Acceleration limits (interior boundaries only)
+            // Ruckig check_for_velocity (profile.hpp) limits ONLY the interior
+            // boundary accelerations a[1], a[3], a[5]. a[0]=a0 is deliberately NOT
+            // limit-checked (an out-of-aMax initial acceleration is admissible; the
+            // solver absorbs it), and a[7]=af is pinned by the velocity-target check
+            // below, not by the limit check.
+            IF ABS(#profile.a[1]) > #aMax + #EPS_LIMIT THEN
+                #CheckVelProfile := false;
+                RETURN;
+            END_IF;
+            IF ABS(#profile.a[3]) > #aMax + #EPS_LIMIT THEN
+                #CheckVelProfile := false;
+                RETURN;
+            END_IF;
+            IF ABS(#profile.a[5]) > #aMax + #EPS_LIMIT THEN
+                #CheckVelProfile := false;
+                RETURN;
+            END_IF;
         END_REGION
 
         REGION Reaches velocity target (position NOT checked)
