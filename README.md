@@ -4,12 +4,25 @@ A Siemens SCL (Structured Text) port of the [Ruckig](https://github.com/pantor/r
 Online Trajectory Generation library, for S7-1500 PLCs. MIT-licensed (same as
 upstream Ruckig).
 
-**Status: v0.6.0 — per-DoF synchronization, TimeIfNecessary, and discrete
-duration rounding, building on v0.5's Phase and No synchronization modes. Each
-axis can now carry an independent sync mode (`No` / `Time` / `TimeIfNecessary`
-via `perDofSynchronization`); a rest-target axis can run free while moving
-targets are time-synced; `t_sync` can be rounded up to the next cycle boundary.
-On top of v0.5 multi-axis Phase/No sync and v0.4 Time sync.**
+**Status: v0.7.0 — velocity control interface (`controlInterface = IFACE_VELOCITY`,
+third-order): drives `(v0, a0) → (vf, af)` jerk-limited with position integrated
+but untargeted, wired through all single- and multi-axis synchronization modes
+(Time / No / per-DoF / TimeIfNecessary / Discrete). Builds on v0.6's per-DoF
+sync completeness.**
+
+## Features (v0.7)
+
+- **Velocity control interface** (`controlInterface = IFACE_VELOCITY`) — select
+  third-order velocity targeting instead of the default position interface.
+  Drives the velocity state `(v0, a0) → (vf, af)` jerk-limited under the
+  acceleration/jerk limits; position is integrated and output but not targeted,
+  and `maxVelocity` is ignored (Ruckig parity).
+- New FCs: `ComputeVelBlock1Axis` (Step 1 → Block), `ComputeVelProfileTimed`
+  (Step 2 re-time to imposed duration), `CheckVelProfile` (velocity-profile
+  validity), plus internal helpers `CollectVelStep1Dir` and `SolveVelTimedDir`.
+- Wired through the existing multi-axis flow: single-axis and all sync modes
+  (Time / No / per-DoF / TimeIfNecessary / Discrete) work for the velocity
+  interface. Phase sync falls back to Time for velocity (see Known limitations).
 
 ## Features (v0.6)
 
@@ -62,12 +75,15 @@ On top of v0.5 multi-axis Phase/No sync and v0.4 Time sync.**
   agrees to the floating-point floor (~1e-15) across all profile families;
   cyclic rest-to-rest / zero-target-velocity parity holds to 1e-6
 
-### Known limitations (v0.6)
+### Known limitations (v0.7)
 
 - **Per-DoF `Phase` mixes are not supported.** A `Phase` per-DoF entry is
   silently treated as `Time`; `Phase` is a global-only mode (matches Ruckig,
   which abandons phase whenever a Time axis is in the mix).
-- **Velocity control interface not yet implemented.** Deferred to v0.7.
+- **Velocity + Phase synchronization falls back to Time** and does not match
+  Ruckig's phase-synced velocity trajectory (scales each axis's profile by the
+  velocity-delta ratio for straight-line motion in velocity space). Faithful
+  velocity-Phase sync is deferred.
 - **No brake pre-phase in the multi-axis path.** Multi-DoF assumes the initial
   states are within limits; the brake machinery runs only on the single-axis
   path. Full brake machinery is deferred to v0.8.
@@ -101,6 +117,10 @@ One stateful FB orchestrating pure algorithmic FCs, called once per PLC cycle:
 | `CheckProfile` (FC) | Validate a candidate profile by integration |
 | `ComputeBrakeProfile` (FC) | Brake sub-profile for an out-of-limits initial state |
 | `AdvanceTime` / `StateAtTime` (FC) | Integrate time, evaluate p/v/a (brake prefix first) |
+| `ComputeVelBlock1Axis` (FC) | Velocity Step 1 → reachable-duration `Block` (tMin + blocked intervals) |
+| `ComputeVelProfileTimed` (FC) | Velocity Step 2: re-time a velocity move to an imposed duration `tf` |
+| `CheckVelProfile` (FC) | Validate a velocity-mode candidate profile by integration |
+| `CollectVelStep1Dir` / `SolveVelTimedDir` (FC) | Internal direction helpers for velocity Step 1 / Step 2 |
 
 Data is carried by UDTs (`typeRuckigInput`, `typeRuckigOutput`, `typeProfile`,
 `typeTrajectory`, `typeBrakeProfile`, `typeBlock`, `typeBlockSet`). See the
@@ -108,7 +128,8 @@ design specs under [docs/superpowers/specs/](docs/superpowers/specs/)
 (`2026-05-28-…-port-design.md` for v0.1, `2026-05-30-…-v0.2-design.md` for v0.2,
 `2026-06-02-…-v0.3-design.md` for v0.3, `2026-06-03-…-v0.4-design.md` for v0.4,
 `2026-06-03-ruckig-scl-v0.5-design.md` for v0.5,
-`2026-06-03-ruckig-scl-v0.6-design.md` for v0.6).
+`2026-06-03-ruckig-scl-v0.6-design.md` for v0.6,
+`2026-06-04-ruckig-scl-v0.7-design.md` for v0.7).
 
 ## How it was ported
 
@@ -228,7 +249,7 @@ uv sync                       # core deps (offline-installable)
 uv run pytest tests/unit      # unit tests
 
 uv sync --extra parity        # adds the Ruckig reference (PyPI: ruckig)
-uv run pytest tests/parity    # 35 cross-implementation parity scenarios
+uv run pytest tests/parity    # 44 cross-implementation parity scenarios
 ```
 
 ## Roadmap
@@ -240,8 +261,8 @@ uv run pytest tests/parity    # 35 cross-implementation parity scenarios
 | v0.3 | Single-axis step2 (re-time to an imposed duration) |
 | v0.4 | Multi-axis time synchronization |
 | v0.5 | Multi-axis phase + no synchronization |
-| v0.6 | Per-DoF synchronization, TimeIfNecessary, discrete duration *(this release)* |
-| v0.7 | Velocity interface |
+| v0.6 | Per-DoF synchronization, TimeIfNecessary, discrete duration |
+| v0.7 | Velocity interface *(this release)* |
 | v0.8 | Brake profiles and degenerate cases |
 | v0.9 | Performance optimization; first public release, after field-validation campaigns |
 | v1.0 | Post field-testing |

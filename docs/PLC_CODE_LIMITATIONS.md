@@ -20,6 +20,8 @@ transpiler, so the idiomatic SCL forms are used directly throughout `ruckig-scl`
 | 5 | Multi-line RHS in a REGION dropped continuation lines | `_preprocess` only joined a continuation ending in `:=` | also joins operator-led continuations |
 | 6 | `REGION Set 7 phase durations` leaked `7 phase durations` | same as #3 (digit) | same fix |
 | 7 | Hex literal `16#8201` in code became `16 self.8201` | `#` parsed as instance-var prefix before hex translation | hex translation runs first and tolerates parser-inserted spaces |
+| 9 | An identifier starting with `IF` (e.g. `"dbRuckigConst".IFACE_VELOCITY`) is mis-lexed — the lexer reads `IF` as the keyword, producing invalid Python | The DB-constant pattern splits on `.`, leaving the bare `IFACE_VELOCITY` token which starts with the keyword `IF` | Workaround: use the literal integer value (e.g. `1`) with an inline comment naming the constant (`// IFACE_VELOCITY`) |
+| 10 | An inline comment on the same line as `END_IF;` (e.g. `END_IF; // closes ...`) silently drops the entire enclosing block | The control-flow depth counter matches `END_IF` only after `rstrip` of `; ` and spaces, not a trailing `//` comment, so the `END_IF` is not recognised and the block is discarded | Workaround: put the comment on its own line before or after `END_IF;`, never inline with it |
 
 (Items 4 and 8 in the original notes were conventions, not bugs.)
 
