@@ -60,7 +60,7 @@ FUNCTION "SolveTimedVel" : Void
         den_p4 : LReal;
         den_p5 : LReal;
         den_12jj : LReal;
-        // derivative-extrema seeding (Attempt C)
+        // general path: derivative-extrema seeding (Ruckig time_vel)
         derivArr  : Array[0..6] of LReal;  // monic derivative of poly
         dderivArr : Array[0..6] of LReal;  // standard/monic derivative of derivArr
         ddderivArr : Array[0..6] of LReal; // standard derivative of dderivArr (UDUD)
@@ -111,10 +111,11 @@ FUNCTION "SolveTimedVel" : Void
             //             position_third_step2.cpp l.259-488.
             //             General case: degree-5 (UDDU) / degree-6 (UDUD) poly.
             //             Real roots in [tz_min,tz_max] found by derivative-
-            //             extrema seeding (Attempt C): compute monic derivative,
-            //             solve SolveQuartic for extrema, walk extrema tracking
-            //             tz_current for sign-change brackets, refine via
-            //             ShrinkInterval, then check_root (Newton + CheckProfile).
+            //             extrema seeding: compute monic derivative, solve
+            //             SolveQuartic for extrema (positive roots only), walk
+            //             extrema tracking tz_current for sign-change brackets,
+            //             refine via ShrinkInterval, then check_root (Newton +
+            //             CheckProfile).
             //             UDUD: 2-level — SolveQuartic on 2nd-derivative extrema,
             //             bracket 1st-deriv, ShrinkInterval on deriv, then poly.
             // Family:     Ruckig
@@ -266,6 +267,7 @@ FUNCTION "SolveTimedVel" : Void
                     #tzCur := #tzMin;
                     FOR #qr := 0 TO #qCount - 1 DO
                         IF NOT #found THEN
+                            IF #qRoots[#qr] >= 0.0 THEN
                             #tzExtr := #qRoots[#qr];
                             IF #tzExtr < #tzMax THEN
                                 // Newton refine on derivArr
@@ -376,6 +378,7 @@ FUNCTION "SolveTimedVel" : Void
                                 END_IF;
                                 // tz_current tracks the REFINED EXTREMUM, not the root
                                 #tzCur := #tzExtr;
+                            END_IF;
                             END_IF;
                         END_IF;
                     END_FOR;
@@ -565,6 +568,7 @@ FUNCTION "SolveTimedVel" : Void
                     #tzCur := #tzMin;
                     FOR #qr := 0 TO #qCount - 1 DO
                         IF NOT #found THEN
+                            IF #qRoots[#qr] >= 0.0 THEN
                             #t := #qRoots[#qr];
                             IF #t < #tzMax THEN
                                 // Newton refine on dderivArr
@@ -694,6 +698,7 @@ FUNCTION "SolveTimedVel" : Void
                                     END_IF;
                                 END_IF;
                                 #ddTzCur := #t;
+                            END_IF;
                             END_IF;
                         END_IF;
                     END_FOR;
