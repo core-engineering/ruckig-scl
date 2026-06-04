@@ -3,11 +3,14 @@ import pytest
 
 RESULT_WORKING = 0x7000
 
+# Genuine two-step states: solved by the pure ComputeProfile1Axis solver
+# (two-step fallback families, no brake needed).
+# States with a0=-2.044 and a0=4.665 require a brake pre-phase and are
+# NOT pure two-step cases; they are covered by the v09 parity scenarios
+# via RuckigOtg (which always calls ComputeBrakeProfile before step1).
 GAP_STATES = [
-    (-2.896, -2.044, -2.507, 1.212, -3.678),
     (-2.864, -1.826, -2.59, -0.917, -0.541),
     (2.79, 2.615, 2.404, -1.29, 1.672),
-    (2.198, 4.665, 2.947, -2.757, -0.294),
     (-2.151, -4.718, -1.66, 1.664, -3.165),
     (-2.261, -3.989, -0.798, 1.539, -4.625),
 ]

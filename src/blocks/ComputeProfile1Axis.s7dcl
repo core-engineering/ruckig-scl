@@ -31,11 +31,6 @@ FUNCTION "ComputeProfile1Axis" : Word
         allCount     : Int;
         // finalise scratch
         i            : DInt;
-        // v0.9: brake-then-resolve path
-        pBrake       : LReal;
-        vBrake       : LReal;
-        aBrake       : LReal;
-        p0Main       : LReal;
     END_VAR
 
     { S7_Language := "SCL" }
@@ -68,11 +63,6 @@ FUNCTION "ComputeProfile1Axis" : Word
             #found        := false;
             #bestSjMax    := #jMax;
             #allCount     := 0;
-            // v0.9: default post-brake state = original (overridden if brake fires)
-            #p0Main  := #p0;
-            #vBrake  := #v0;
-            #aBrake  := #a0;
-            #pBrake  := 0.0;
         END_REGION
 
         REGION Solve positive direction
@@ -132,45 +122,6 @@ FUNCTION "ComputeProfile1Axis" : Word
             END_IF;
         END_REGION
 
-        REGION Brake-then-resolve (v0.9 last resort when all families fail)
-            // When the initial state exceeds or will exceed limits (velocity
-            // overshoot due to acceleration), the oracle pre-applies a brake
-            // trajectory before solving step1. Mirror Ruckig's behaviour:
-            // compute a brake (may be zero-duration if not needed), then
-            // re-run the main families on the post-brake state. Only runs
-            // when found is still false after all families + two-step.
-            // Note: transpiler quirk — do NOT use "=>" VAR_OUTPUT bindings when
-            // consuming the return value. Read post-brake state from profile.brake
-            // which is written reliably via VAR_IN_OUT.
-            IF NOT #found THEN
-                "ComputeBrakeProfile"(profile := #profile,
-                    v0 := #v0, a0 := #a0, vMax := #vMax, aMax := #aMax, jMax := #jMax);
-                #pBrake := #profile.brake.p[2];
-                #vBrake := #profile.brake.v[2];
-                #aBrake := #profile.brake.a[2];
-                #p0Main := #p0 + #pBrake;
-                IF (#pBrake * #pBrake + (#vBrake - #v0) * (#vBrake - #v0)
-                        + (#aBrake - #a0) * (#aBrake - #a0)) > 1.0E-20 THEN
-                    // Non-trivial brake: re-run both directions on post-brake state
-                    #bestDuration := 1.0E30;
-                    #bestSjMax    := #jMax;
-                    #allCount     := 0;
-                    "SolveDirection"(profile := #profile, bestT := #bestT,
-                        bestDuration := #bestDuration, found := #found, bestSjMax := #bestSjMax,
-                        allDur := #allDur, allCount := #allCount,
-                        p0 := #p0Main, v0 := #vBrake, a0 := #aBrake,
-                        pT := #pT, vT := #vT, aT := #aT,
-                        svMax := #vMax, svMin := -#vMax, saMax := #aMax, saMin := -#aMax, sjMax := #jMax);
-                    "SolveDirection"(profile := #profile, bestT := #bestT,
-                        bestDuration := #bestDuration, found := #found, bestSjMax := #bestSjMax,
-                        allDur := #allDur, allCount := #allCount,
-                        p0 := #p0Main, v0 := #vBrake, a0 := #aBrake,
-                        pT := #pT, vT := #vT, aT := #aT,
-                        svMax := -#vMax, svMin := #vMax, saMax := -#aMax, saMin := #aMax, sjMax := -#jMax);
-                END_IF;
-            END_IF;
-        END_REGION
-
         REGION Finalise winner or fail
             IF #found THEN
                 FOR #i := 0 TO 6 DO
@@ -185,9 +136,7 @@ FUNCTION "ComputeProfile1Axis" : Word
                 #profile.j[4] := -#bestSjMax;
                 #profile.j[5] := 0.0;
                 #profile.j[6] := #bestSjMax;
-                // Integrate from post-brake initial state (p0Main/vBrake/aBrake may
-                // differ from the raw p0/v0/a0 when the brake fallback was used).
-                "IntegrateProfileStates"(profile := #profile, p0 := #p0Main, v0 := #vBrake, a0 := #aBrake);
+                "IntegrateProfileStates"(profile := #profile, p0 := #p0, v0 := #v0, a0 := #a0);
                 #ComputeProfile1Axis := "dbRuckigConst".RESULT_WORKING;
             ELSE
                 #ComputeProfile1Axis := "dbRuckigConst".RESULT_ERR_SOLVER;
