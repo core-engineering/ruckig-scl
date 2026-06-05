@@ -1,0 +1,72 @@
+{
+    S7_Author := "Camille Martin";
+    S7_EditorMode := "SCL";
+    S7_Family := "Ruckig";
+    S7_Optimized := "TRUE";
+    S7_Version := "0.11.0"
+}
+FUNCTION_BLOCK "BenchRuckigOtg"
+    // PLCSIM Advanced benchmark driver for RuckigOtg. Call from a cyclic OB and
+    // time it externally (RUNTIME in the OB, or TIA online trace / OB cycle time);
+    // divide the elapsed time by `iterations` to get per-update cost. The checksum
+    // output prevents the compiler from eliding the calls.
+    // NOTE: this FB nests a RuckigOtg instance; it is a TIA Portal artifact and is
+    // NOT exercised by the SCL->Python test bench (plc-code does not nest FBs).
+    VAR_INPUT
+        iterations : Int := 1000;     // updates per call
+        nDofs      : Int := 4;        // 1..4
+        mode       : Int := 0;        // 0 = force recompute each update, 1 = steady-state
+    END_VAR
+    VAR_OUTPUT
+        checksum : LReal := 0.0;      // anti-elision accumulator
+    END_VAR
+    VAR
+        instOtg : "RuckigOtg";
+        otgIn   : "typeRuckigInput";
+        otgOut  : "typeRuckigOutput";
+    END_VAR
+    VAR_TEMP
+        i  : Int;
+        ax : Int;
+    END_VAR
+
+    { S7_Language := "SCL" }
+    NETWORK
+        REGION Configure inputs
+            #otgIn.nDofs := #nDofs;
+            #otgIn.synchronization := 2;
+            #otgIn.controlInterface := 0;
+            #otgIn.minimumDuration := -1.0;
+            #otgIn.durationDiscretization := 0;
+            FOR #ax := 0 TO #nDofs - 1 DO
+                #otgIn.enabled[#ax] := TRUE;
+                #otgIn.maxVelocity[#ax] := 2.0;
+                #otgIn.maxAcceleration[#ax] := 5.0;
+                #otgIn.maxJerk[#ax] := 10.0;
+                #otgIn.targetPosition[#ax] := 1.0;
+                #otgIn.perDofSynchronization[#ax] := -1;
+            END_FOR;
+            #checksum := 0.0;
+        END_REGION
+
+        REGION Timed loop (time this externally; divide by iterations)
+            FOR #i := 1 TO #iterations DO
+                // mode 0: toggle the target each iteration to force a recompute
+                // (worst case). mode 1: leave the target fixed (steady-state).
+                IF #mode = 0 THEN
+                    IF #otgIn.targetPosition[0] > 0.5 THEN
+                        #otgIn.targetPosition[0] := 0.0;
+                    ELSE
+                        #otgIn.targetPosition[0] := 1.0;
+                    END_IF;
+                END_IF;
+                #instOtg(enable := TRUE,
+                         input := #otgIn,
+                         cycleTime := 0.010,
+                         reset := FALSE,
+                         output => #otgOut);
+                #checksum := #checksum + #otgOut.newPosition[0];
+            END_FOR;
+        END_REGION
+    END_NETWORK
+END_FUNCTION_BLOCK
