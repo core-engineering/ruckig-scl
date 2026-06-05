@@ -4,9 +4,9 @@ A Siemens SCL (Structured Text) port of the [Ruckig](https://github.com/pantor/r
 Online Trajectory Generation library, for S7-1500 PLCs. MIT-licensed (same as
 upstream Ruckig).
 
-**Status: v0.10.0 — step2 parity-complete: `SolveTimedVel` cubic + extrema-seeding
-and structural `ReachedLimits` guards close the last known shape-parity gap (1.7% → 0).
-Builds on v0.9's step1 two-step fallbacks.**
+**Status: v0.11.0 — performance characterization tooling added; solver is unchanged
+and parity-complete (261 solver tests + 2 perf sanity tests = 263 total). Builds on
+v0.10's step2 precision and v0.9's step1 two-step fallbacks.**
 
 ## Features (v0.10)
 
@@ -292,7 +292,27 @@ uv run pytest tests/unit      # unit tests
 
 uv sync --extra parity        # adds the Ruckig reference (PyPI: ruckig)
 uv run pytest tests/parity    # 64 cross-implementation parity scenarios
+
+uv run pytest tests/perf      # 2 perf sanity tests (no external deps)
 ```
+
+Total: 263 tests (261 solver / parity + 2 perf sanity). The profiler
+(`tests/perf/profile_ruckig.py`) runs independently and writes
+`docs/PERFORMANCE.md`.
+
+## Performance
+
+See [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) for an SCL-level relative cost
+analysis (FC calls per `RuckigOtg` update + `sqrt` count as a proxy for PLC
+cycle time). Key findings:
+
+- **Steady-state** (no retarget): cheap — ~30 FC calls, 0 sqrt.
+- **Worst-case 4-DoF retarget**: 368 FC calls, 150 sqrt — dominated by the root
+  solvers (`PolyEval` / `SolveQuartic` / `SolveCubic` / `CheckProfile`).
+
+For real µs measurement on hardware, see [`benchmark/`](benchmark/) for a
+TIA-importable `BenchRuckigOtg.s7dcl` driver and methodology targeting the
+< 2 ms gate on PLCSIM Advanced FW V3.0+ (4-DoF worst-case retarget).
 
 ## Roadmap
 
@@ -307,8 +327,9 @@ uv run pytest tests/parity    # 64 cross-implementation parity scenarios
 | v0.7 | Velocity interface |
 | v0.8 | Multi-axis brake pre-phase |
 | v0.9 | step1 two-step fallbacks — closes ~3% `RESULT_ERR_SOLVER` gap |
-| v0.10 | step2 parity-complete: `SolveTimedVel` precision + structural guards *(this release)* |
-| v1.0 (next) | Performance tuning + field validation (pre-1.0) |
+| v0.10 | step2 parity-complete: `SolveTimedVel` precision + structural guards |
+| v0.11 | Performance characterization tooling (profiler + PLCSIM benchmark template) *(this release)* |
+| next | Real PLCSIM cycle-time measurement → optimization if needed → field validation (v1.0 gate) |
 
 ## License
 
