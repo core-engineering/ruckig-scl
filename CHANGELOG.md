@@ -3,6 +3,27 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.11.0] - 2026-06-05
+
+### Added
+- **Performance characterization tooling.** `tests/perf/profile_ruckig.py` counts
+  SCL-level operations per `RuckigOtg` update (FC calls by block + `sqrt`) as a
+  relative cost proxy, and writes `docs/PERFORMANCE.md` (per-scenario cost,
+  steady-state vs recompute, 4-DoF hot-path ranking). Measured: the common
+  steady-state cycle is cheap (0 sqrt, ~30 FC calls); the worst-case 4-DoF
+  retarget cycle (368 FC calls, 150 sqrt) is dominated by the root solvers
+  (`PolyEval`/`SolveQuartic`/`SolveCubic`/`CheckProfile`).
+- **PLCSIM benchmark template.** `benchmark/BenchRuckigOtg.s7dcl` (a TIA-importable
+  driver) + `benchmark/README.md` (measurement methodology for the < 2 ms / 4-DoF
+  gate on PLCSIM Advanced FW V3.0+).
+
+### Notes
+- No solver change (the 261 parity/unit tests are unaffected; 263 total with the
+  2 perf sanity tests). Real µs measurement (PLCSIM) and any resulting
+  optimization are the next, user-driven step.
+- `plc-code` cannot nest FBs, so the benchmark FB is a TIA-only artifact; the
+  here-runnable loop-driver is the profiler.
+
 ## [0.10.0] - 2026-06-04
 
 ### Fixed
@@ -354,6 +375,7 @@ out-of-limits first enable. Builds on the v0.1 FB/UDT layer.
   returns `RESULT_ERR_SOLVER` if ever required): the zero-limits special case
   and the two-step fallbacks (`time_*_two_step`).
 
+[0.11.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.11.0
 [0.10.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.10.0
 [0.9.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.9.0
 [0.8.0]: https://github.com/core-engineering/ruckig-scl/releases/tag/v0.8.0
